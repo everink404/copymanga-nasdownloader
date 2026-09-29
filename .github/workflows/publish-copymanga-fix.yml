@@ -47,3 +47,18 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Verify published container starts
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+        run: |
+          docker pull "$IMAGE"
+          trap 'docker logs cmnas-smoke; docker rm -f cmnas-smoke' EXIT
+          docker run -d --name cmnas-smoke -p 127.0.0.1:18080:8000 "$IMAGE"
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:18080/ > /dev/null; then
+              echo "Published image serves the WebUI successfully"
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
