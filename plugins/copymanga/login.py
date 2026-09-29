@@ -1,8 +1,7 @@
 import logging
 
-import httpx
-
 from utils import config
+from utils.request import RequestHandler
 
 
 def login(**information: dict) -> str:
@@ -14,22 +13,19 @@ def login(**information: dict) -> str:
     """
     if information["username"]:
         try:
-            # Handle httpx proxy format
-            proxy = information.get("proxy")
-            proxies = None
-            if proxy:
-                if isinstance(proxy, dict):
-                    proxies = {f"{proto}://": url for proto, url in proxy.items()}
-                else:
-                    proxies = proxy
-
-            res = httpx.post(f"{information['url']}/api/kb/web/login", data={
-                "username": information["username"],
-                "password": information["password"],
-                "salt": information["salt"]
-            }, headers={
+            handler = RequestHandler(proxy=information.get("proxy"), copymanga=True, headers={
                 "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0"
-            }, proxy=proxies)
+            })
+            try:
+                res = handler.post(f"{information['url']}/api/kb/web/login", data={
+                    "username": information["username"],
+                    "password": information["password"],
+                    "salt": information["salt"]
+                })
+            finally:
+                handler.client.close()
+            if res is None:
+                return None
             res_json = res.json()
             if res_json["code"] == 200:
                 return res_json["results"]["token"]

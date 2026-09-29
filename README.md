@@ -71,6 +71,7 @@ services:
 
       # --- API URL ---
       - CMNAS_API_URL=https://api.mangacopy.com
+      - CMNAS_CM_RATE_LIMIT_PER_MINUTE=${CMNAS_CM_RATE_LIMIT_PER_MINUTE:-12}
 
       # --- 行为配置 ---
       # 是否使用copymanga原名 (True/False)
@@ -78,6 +79,23 @@ services:
 ```
 
 将上方的内容保存到`docker-compose.yml`中，然后运行`docker compose up -d`即可部署完成
+
+#### 部署本 fork 的修复版本
+
+本仓库的修复需要从对应分支构建镜像；上方的上游预构建镜像不包含本 fork 的改动。
+克隆本仓库并切换到修复分支后，使用仓库自带的 `docker-compose.yml`：
+
+```bash
+git clone -b fix/copymanga-rate-limit-recovery https://github.com/everink404/copymanga-nasdownloader.git
+cd copymanga-nasdownloader
+cp .env.sample .env
+# 修改 docker-compose.yml 中的账号、代理等配置
+docker compose up -d --build
+```
+
+更新已有部署时，在切换分支并保留原有配置后执行 `docker compose up -d --build`。
+保持原有 `data`、`downloads`、`cbz` 的卷映射，WebUI 仍使用 8000 端口。
+限流可通过 `.env` 中的 `CMNAS_CM_RATE_LIMIT_PER_MINUTE` 配置；自定义 Compose 文件需将此变量传入容器的 `environment`。
 
 ---
 
@@ -113,7 +131,14 @@ CMNAS_LOG_LEVEL= # 日志等级(DEBUG,INFO,WARNING,ERROR)
 CMNAS_CM_USERNAME= # copymanga 账户名称
 CMNAS_CM_PASSWORD= # copymanga 密码
 CMNAS_CM_PROXY= # copymanga 使用的代理
+CMNAS_CM_RATE_LIMIT_PER_MINUTE=12 # CopyManga API 全局限流（次/分钟），0 关闭
 ```
+
+CopyManga 的登录、章节列表、章节详情及其重试共享同一进程的限流器，默认每次请求至少间隔 5 秒（12 次/分钟），不限制图片 CDN 或其他站点。设置为 `0` 可关闭；负数或无效值使用默认值 12。修改环境变量后重启进程或容器。多个容器的限额分别计算。
+
+HTTP 210 会记录错误并使当前请求失败，进程继续运行。HTTP 429 按 `Retry-After`（秒数或 HTTP 日期）等待；缺失或无效时等待 60 秒，沿用现有最多 3 次请求尝试，耗尽后安全返回失败。关闭常规限流不会关闭 429 等待。
+
+任一章节图片下载失败时，不打包 CBZ、不删除临时目录、不更新完成记录，并停止当前漫画后续章节，避免顺序记录跳过失败章节；其他漫画仍继续处理。下次运行会补下载缺失图片并复用已有非空图片。新图片先写入 `.part` 再原子替换，防止写入中断后被误认为已完成。请保留 `downloads` 卷以便恢复；旧版本遗留的非空损坏图片需要手动删除后重试。
 
 #### 配置更新列表
 

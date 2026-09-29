@@ -30,6 +30,7 @@ services:
 
       # --- API URL ---
       - CMNAS_API_URL=https://api.mangacopy.com
+      - CMNAS_CM_RATE_LIMIT_PER_MINUTE=${CMNAS_CM_RATE_LIMIT_PER_MINUTE:-12}
 
       # --- 行为配置 ---
       # 是否使用copymanga原名 (True/False)

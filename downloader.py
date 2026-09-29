@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 
 def downloader(url: str, filename: str, overwrite: bool = False) -> bool:
     # 检查文件是否已存在
-    if os.path.exists(filename):
+    if os.path.exists(filename) and os.path.getsize(filename) > 0:
         if overwrite:
             log.warning(f"文件已存在，强制覆盖: {filename}")
         else:
@@ -44,8 +44,10 @@ def downloader(url: str, filename: str, overwrite: bool = False) -> bool:
             log.debug(f"创建目录: {directory}")
 
         # 保存文件
-        with open(filename, 'wb') as f:
+        # 原子替换，避免写入中断留下的半张图片在补下载时被当作已完成。
+        with open(filename + '.part', 'wb') as f:
             f.write(response.content)
+        os.replace(filename + '.part', filename)
 
         log.info(f"图片下载成功: {filename}")
         return True

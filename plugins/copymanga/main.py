@@ -13,14 +13,20 @@ from utils.request import RequestHandler
 
 log = logging.getLogger(__name__)
 
-request = RequestHandler(headers=HEADERS, proxy=config.CM_PROXY)
+request = RequestHandler(headers=HEADERS, proxy=config.CM_PROXY, copymanga=True)
 
 
 def get_chapter(path_word: str, uuid: str):
     """获取章节详情"""
     data = request.get(f"/api/v3/comic/{path_word}/chapter2/{uuid}")
+    if data is None:
+        log.error(f"漫画章节请求失败：{path_word}/{uuid}")
+        return None
     try:
-        return data.json()['results']['chapter']
+        chapter = data.json()['results']['chapter']
+        if not isinstance(chapter, dict):
+            raise ValueError("章节详情不是对象")
+        return chapter
     except Exception as e:
         log.error(f"漫画章节内容解析失败：{e}")
         return None
@@ -34,6 +40,13 @@ def download_chapter(task: Dict[str, Any], uuid: str, chapter_name: str):
         notifier.add_error("copymanga", f"{task['name']} - {chapter_name}", "获取章节内容失败")
         return False
 
+    contents = chapter.get('contents')
+    words = chapter.get('words')
+    if not contents or not isinstance(contents, list) or not isinstance(words, list) or len(contents) != len(words):
+        log.error(f"章节图片列表无效：{task['name']} - {chapter_name}")
+        notifier.add_error("copymanga", f"{task['name']} - {chapter_name}", "章节图片列表无效")
+        return False
+
     current_name = chapter_name
     log.info(f"已获取到 {task['name']} {current_name} 的内容，开始安排下载")
 
@@ -42,7 +55,7 @@ def download_chapter(task: Dict[str, Any], uuid: str, chapter_name: str):
 
     # 下载所有图片
     download_failed = False
-    for index, url in enumerate(chapter['contents']):
+    for index, url in enumerate(contents):
         image_path = os.path.join(save_path, f"{chapter['words'][index]:04d}.jpg")
         full_url = url['url'].replace("c800x.jpg", "c1500x.jpg").replace("c800x.webp", "c1500x.webp")
 
@@ -54,6 +67,8 @@ def download_chapter(task: Dict[str, Any], uuid: str, chapter_name: str):
 
     if download_failed:
         notifier.add_error("copymanga", f"{task['name']} - {current_name}", "部分图片下载失败")
+        log.error(f"保留章节临时目录以便下次补下载：{save_path}")
+        return False
 
     log.info(f"{task['name']} {current_name} 下载完成，开始进行cbz打包")
 
@@ -92,9 +107,12 @@ def download_task(task: Dict[str, Any]):
             success = download_chapter(task, uuid, name)
             if not success:
                 log.error(f"章节下载失败: {task['name']} {name}, UUID: {uuid}")
+                # latest_chapter 是顺序游标，不能越过未完成的章节。
+                break
         except Exception as e:
             log.error(f"章节处理异常: {e}")
             notifier.add_error("copymanga", f"{task['name']} - {name}", str(e))
+            break
         time.sleep(3)
 
     log.info(f"{task['name']} 需要更新的下载已完成")

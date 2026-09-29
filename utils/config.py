@@ -20,6 +20,7 @@ CM_TOKEN = ""
 CM_USERNAME = ""
 CM_PASSWORD = ""
 CM_PROXY = {}
+CM_RATE_LIMIT_PER_MINUTE = 12
 
 # Push 配置
 PUSH_ENABLE = False
@@ -44,6 +45,7 @@ def load_system_config():
 def reload():
     global DOWNLOAD_PATH, CBZ_PATH, USE_CM_CNAME, LOG_LEVEL
     global CM_API_URL, CM_TOKEN, CM_USERNAME, CM_PASSWORD, CM_PROXY
+    global CM_RATE_LIMIT_PER_MINUTE
     global PUSH_ENABLE, PUSH_SERVER, PUSH_USER, PUSH_TOKEN, PUSH_SUMMARY_ONLY, PUSH_MARKDOWN
 
     json_conf = load_system_config()
@@ -71,6 +73,13 @@ def reload():
     CM_TOKEN = get_conf("cm_token", "CMNAS_CM_TOKEN", '')
     CM_USERNAME = get_conf("cm_username", "CMNAS_CM_USERNAME", '')
     CM_PASSWORD = get_conf("cm_password", "CMNAS_CM_PASSWORD", '')
+    try:
+        CM_RATE_LIMIT_PER_MINUTE = int(os.getenv("CMNAS_CM_RATE_LIMIT_PER_MINUTE") or 12)
+        if CM_RATE_LIMIT_PER_MINUTE < 0:
+            raise ValueError("限流值不能为负数")
+    except ValueError:
+        log.warning("CMNAS_CM_RATE_LIMIT_PER_MINUTE 必须为非负整数，使用默认值 12")
+        CM_RATE_LIMIT_PER_MINUTE = 12
 
     proxy_str = get_conf("cm_proxy", "CMNAS_CM_PROXY", '')
     CM_PROXY = {'http': proxy_str, 'https': proxy_str} if proxy_str else {}

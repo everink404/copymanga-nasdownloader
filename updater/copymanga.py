@@ -9,7 +9,7 @@ from .base import BaseUpdater
 
 log = logging.getLogger(__name__)
 
-request = RequestHandler(headers=HEADERS, proxy=config.CM_PROXY)
+request = RequestHandler(headers=HEADERS, proxy=config.CM_PROXY, copymanga=True)
 
 
 class CopyMangaUpdater(BaseUpdater):
@@ -29,7 +29,17 @@ class CopyMangaUpdater(BaseUpdater):
         log.info(f"获取漫画：{record['path_word']}，类别：{record['group_word']}")
         url = f"/api/v3/comic/{record['path_word']}/group/{record['group_word']}/chapters?limit=500&offset=0&platform=3&in_mainland=false"
         data = request.get(url)
-        return data.json()['results']['list']
+        if data is None:
+            log.error(f"漫画章节列表请求失败：{record['path_word']}")
+            return []
+        try:
+            chapters = data.json()['results']['list']
+            if not isinstance(chapters, list):
+                raise ValueError("章节列表不是数组")
+            return chapters
+        except (ValueError, KeyError, TypeError) as e:
+            log.error(f"漫画章节列表解析失败：{e}")
+            return []
 
     def find_subsequent_uuids(self, chapters: List[Dict], target_chapter: str) -> List[Tuple[str, str]]:
         sorted_chapters = sorted(chapters, key=lambda x: x['index'])
