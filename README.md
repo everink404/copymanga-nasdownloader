@@ -31,7 +31,7 @@
 
 WebUI 的「漫画源」页可以浏览 CopyManga 日/周/月/总榜或搜索漫画，查看封面、简介、作者、分组与章节目录，并直接加入「我的订阅」。添加时可选择从头下载、只追踪以后的更新，或点击目录中的一章作为下载起点（包含该章）。保存订阅不会立即下载；可使用现有「立即运行」按钮或定时任务。无需先导入账号收藏，也不提供在线阅读。接口受到 CopyManga 限制时，页面会提示重试；浏览请求同样受 `CMNAS_CM_RATE_LIMIT_PER_MINUTE` 限流。详细范围见 [更新规划](docs/COPYMANGA_BROWSE_PLAN.md)。
 
-此功能在 `feature/copymanga-source-browser` 分支开发，发布到原有的 `ghcr.io/everink404/copymanga-nasdownloader:copymanga-fix` 标签，同时保留 `:browse-preview` 标签。原有部署可继续使用相同镜像地址拉取新版本并重建容器；保留 `/data`、`/downloads`、`/cbz` 卷映射和 8000 端口，已有订阅无需迁移。旧修复版仍可通过其 SHA 标签 `:sha-9b9530762acc6c1c99116a8abce25d7115ea07e8` 回退。
+此功能在 `feature/copymanga-source-browser` 分支开发，发布为 `ghcr.io/everink404/copymanga-nasdownloader:latest`，同时保留 `:copymanga-fix` 与 `:browse-preview` 标签。镜像更新后需重建容器才能运行新版；保留 `/data`、`/downloads`、`/cbz` 卷映射和 8000 端口，已有订阅无需迁移。旧修复版仍可通过其 SHA 标签 `:sha-9b9530762acc6c1c99116a8abce25d7115ea07e8` 回退。
 
 ### 使用webUI/docker
 
