@@ -86,7 +86,7 @@ def download_chapter(task: Dict[str, Any], uuid: str, chapter_name: str):
 
     # 更新下载记录
     updater.update_chapter_record(
-        task['site'], task['path_word'], current_name
+        task['site'], task['path_word'], current_name, group_word=task.get('group_word', 'default')
     )
 
     notifier.add_success("copymanga", task['name'], current_name)

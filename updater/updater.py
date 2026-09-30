@@ -73,7 +73,7 @@ def process_updates() -> List[Dict[str, Any]]:
     return tasks
 
 
-def update_chapter_record(site_name: str, comic_id: str, new_chapter: str, file_path: str = "updater.json") -> bool:
+def update_chapter_record(site_name: str, comic_id: str, new_chapter: str, file_path: str = "updater.json", group_word: str = None) -> bool:
     site_data = load_updater_json(file_path)
 
     # 获取该站点的记录列表
@@ -90,7 +90,7 @@ def update_chapter_record(site_name: str, comic_id: str, new_chapter: str, file_
     for i, record in enumerate(site_records):
         record_id = site_instance.get_unique_id(record)
 
-        if record_id == comic_id:
+        if record_id == comic_id and (group_word is None or record.get('group_word', 'default') == group_word):
             site_records[i] = site_instance.update_record(record, new_chapter)
             updated = True
             break

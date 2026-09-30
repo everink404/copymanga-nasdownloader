@@ -27,19 +27,28 @@ class CopyMangaUpdater(BaseUpdater):
             logging.debug(HEADERS)
 
         log.info(f"获取漫画：{record['path_word']}，类别：{record['group_word']}")
-        url = f"/api/v3/comic/{record['path_word']}/group/{record['group_word']}/chapters?limit=500&offset=0&platform=3&in_mainland=false"
-        data = request.get(url)
-        if data is None:
-            log.error(f"漫画章节列表请求失败：{record['path_word']}")
-            return []
-        try:
-            chapters = data.json()['results']['list']
-            if not isinstance(chapters, list):
-                raise ValueError("章节列表不是数组")
-            return chapters
-        except (ValueError, KeyError, TypeError) as e:
-            log.error(f"漫画章节列表解析失败：{e}")
-            return []
+        chapters = []
+        for offset in range(0, 10000, 500):
+            url = (f"/api/v3/comic/{record['path_word']}/group/{record['group_word']}/chapters"
+                   f"?limit=500&offset={offset}&platform=3&in_mainland=false")
+            data = request.get(url)
+            if data is None:
+                log.error(f"漫画章节列表请求失败：{record['path_word']}，offset={offset}")
+                return []
+            try:
+                results = data.json()['results']
+                page = results['list']
+                if not isinstance(page, list):
+                    raise ValueError("章节列表不是数组")
+            except (ValueError, KeyError, TypeError) as e:
+                log.error(f"漫画章节列表解析失败：{e}")
+                return []
+            chapters.extend(page)
+            total = results.get('total')
+            if len(page) < 500 or (isinstance(total, int) and offset + len(page) >= total):
+                return chapters
+        log.error(f"漫画章节数超出支持范围：{record['path_word']}")
+        return []
 
     def find_subsequent_uuids(self, chapters: List[Dict], target_chapter: str) -> List[Tuple[str, str]]:
         sorted_chapters = sorted(chapters, key=lambda x: x['index'])

@@ -127,6 +127,7 @@ import axios from 'axios'
 import {useDisplay} from 'vuetify'
 
 import Dashboard from './pages/Dashboard.vue'
+import CopyMangaBrowse from './pages/CopyMangaBrowse.vue'
 import Logs from './pages/Logs.vue'
 import Schedule from './pages/Schedule.vue'
 import Settings from './pages/Settings.vue'
@@ -149,6 +150,7 @@ const confirmState = reactive({
 
 // 菜单配置
 const menuItems = [
+  {title: '漫画源', value: 'browse', icon: 'mdi-bookshelf', component: CopyMangaBrowse},
   {title: '我的订阅', value: 'dashboard', icon: 'mdi-view-dashboard', component: Dashboard},
   {title: '运行日志', value: 'logs', icon: 'mdi-text-box-outline', component: Logs},
   {title: '定时任务', value: 'schedule', icon: 'mdi-clock', component: Schedule},

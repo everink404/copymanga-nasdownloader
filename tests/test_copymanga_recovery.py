@@ -3,6 +3,7 @@
 HTTP, CBZ packaging and record writes are mocked; no account or network needed.
 """
 import importlib.util
+import json
 import os
 from pathlib import Path
 import sys
@@ -147,6 +148,20 @@ class ChapterTests(unittest.TestCase):
         self.task = dict(name='series', path_word='series', site='copymanga',
                          ep_pattern='', vol_pattern='', chapter_infos=[('a', 'one'), ('b', 'two')])
 
+    def test_completion_updates_only_selected_group(self):
+        import importlib
+        real_updater = importlib.import_module('updater.updater')
+        with tempfile.TemporaryDirectory() as directory, patch.object(config, 'DATA_PATH', directory):
+            records = {'copymanga': [
+                dict(name='Comic', path_word='comic', group_word=group, latest_chapter='',
+                     last_download_date='', ep_pattern='', vol_pattern='')
+                for group in ('default', 'special')]}
+            Path(directory, 'updater.json').write_text(json.dumps(records), encoding='utf-8')
+            self.assertTrue(real_updater.update_chapter_record('copymanga', 'comic', 'chapter', group_word='special'))
+            saved = json.loads(Path(directory, 'updater.json').read_text(encoding='utf-8'))['copymanga']
+            self.assertEqual(saved[0]['latest_chapter'], '')
+            self.assertEqual(saved[1]['latest_chapter'], 'chapter')
+
     def test_missing_and_malformed_responses(self):
         for response in (None, httpx.Response(200, text='bad json'),
                          httpx.Response(200, json={'results': None})):
@@ -155,6 +170,20 @@ class ChapterTests(unittest.TestCase):
             with patch.object(chapter_updater.request, 'get', return_value=response), \
                  patch.object(config, 'CM_USERNAME', ''):
                 self.assertEqual(CopyMangaUpdater().get_chapters(dict(path_word='series', group_word='default')), [])
+
+    def test_chapter_list_pages_and_fails_without_partial_download(self):
+        first = [{'uuid': str(i), 'name': str(i), 'index': i} for i in range(500)]
+        record = dict(path_word='series', group_word='default')
+        with patch.object(config, 'CM_USERNAME', ''), patch.object(chapter_updater.request, 'get', side_effect=[
+            httpx.Response(200, json={'results': {'list': first}}),
+            httpx.Response(200, json={'results': {'list': [{'uuid': '500', 'name': '500', 'index': 500}]}}),
+        ]) as get:
+            self.assertEqual(len(CopyMangaUpdater().get_chapters(record)), 501)
+            self.assertIn('offset=500', get.call_args.args[0])
+        with patch.object(config, 'CM_USERNAME', ''), patch.object(chapter_updater.request, 'get', side_effect=[
+            httpx.Response(200, json={'results': {'list': first}}), None,
+        ]):
+            self.assertEqual(CopyMangaUpdater().get_chapters(record), [])
 
     def test_failed_image_preserves_directory_and_resumes(self):
         chapter = dict(contents=[{'url': 'https://cdn.example/1'}, {'url': 'https://cdn.example/2'}], words=[1, 2])
@@ -178,7 +207,7 @@ class ChapterTests(unittest.TestCase):
             self.assertEqual(get.call_count, 3)  # Existing page1 is reused.
             self.assertEqual((save_path / '0002.jpg').read_bytes(), b'page2')
             pack.assert_called_once()
-            record.assert_called_once_with('copymanga', 'series', 'one')
+            record.assert_called_once_with('copymanga', 'series', 'one', group_word='default')
             success.assert_called_once()
 
     def test_failed_or_exceptional_chapter_stops_cursor_advancing(self):

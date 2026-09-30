@@ -11,6 +11,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+from typing import Literal
+
+import copymanga_browse
 
 from utils import config
 
@@ -136,11 +140,46 @@ def get_config():
         return {}
 
 
+class CopyMangaSubscription(BaseModel):
+    path_word: str
+    group_word: str = 'default'
+    name: str = ''
+    mode: Literal['all', 'future', 'from']
+    chapter_uuid: str = ''
+
+
+@app.get('/api/copymanga/browse')
+def browse_copymanga(q: str = '', rank: str = 'day', offset: int = 0, limit: int = 20):
+    if not 0 <= offset <= 10000 or not 1 <= limit <= 50 or len(q) > 100:
+        raise HTTPException(400, '搜索参数无效')
+    return copymanga_browse.browse(q, rank, offset, limit)
+
+
+@app.get('/api/copymanga/comics/{path_word}')
+def copymanga_detail(path_word: str):
+    return copymanga_browse.detail(path_word)
+
+
+@app.get('/api/copymanga/comics/{path_word}/groups/{group_word}/chapters')
+def copymanga_chapters(path_word: str, group_word: str, offset: int = 0, limit: int = 100):
+    if not 0 <= offset <= 10000 or not 1 <= limit <= 500:
+        raise HTTPException(400, '目录参数无效')
+    return copymanga_browse.chapters(path_word, group_word, offset, limit)
+
+
+@app.post('/api/copymanga/subscriptions')
+def add_copymanga_subscription(data: CopyMangaSubscription):
+    return copymanga_browse.subscribe(data, UPDATER_JSON_PATH)
+
+
 @app.post("/api/config")
 def save_config(config_data: Dict[str, Any]):
     try:
-        with open(UPDATER_JSON_PATH, 'w', encoding='utf-8') as f:
-            json.dump(config_data, f, indent=2, ensure_ascii=False)
+        with copymanga_browse._write_lock:
+            temporary = UPDATER_JSON_PATH + '.config.tmp'
+            with open(temporary, 'w', encoding='utf-8') as f:
+                json.dump(config_data, f, indent=2, ensure_ascii=False)
+            os.replace(temporary, UPDATER_JSON_PATH)
         return {"status": "success"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
