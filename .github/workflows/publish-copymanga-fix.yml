@@ -41,6 +41,7 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
+            ghcr.io/${{ github.repository }}:copymanga-fix
             ghcr.io/${{ github.repository }}:${{ github.ref_name == 'feature/copymanga-source-browser' && 'browse-preview' || 'copymanga-fix' }}
             ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
           labels: |
