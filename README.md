@@ -33,7 +33,7 @@ WebUI 的「漫画源」页可以浏览 CopyManga 日/周/月/总榜或搜索漫
 
 此功能在 `feature/copymanga-source-browser` 分支开发，发布为 `ghcr.io/everink404/copymanga-nasdownloader:latest`，同时保留 `:copymanga-fix` 与 `:browse-preview` 标签。镜像更新后需重建容器才能运行新版；保留 `/data`、`/downloads`、`/cbz` 卷映射和 8000 端口，已有订阅无需迁移。旧修复版仍可通过其 SHA 标签 `:sha-9b9530762acc6c1c99116a8abce25d7115ea07e8` 回退。
 
-如果要发布到自己的 Docker Hub 账号，在 GitHub 仓库的 Actions secrets 中设置 `DOCKERHUB_USERNAME`（Docker Hub 用户名）和 `DOCKERHUB_TOKEN`（具有推送权限的 Docker Hub 访问令牌），再从 `feature/copymanga-source-browser` 分支手动运行 `Publish CopyManga to Docker Hub` 工作流。它会发布 `<Docker Hub 用户名>/copymanga-nasdownloader:latest` 及对应的 SHA 标签；令牌不要写入仓库或聊天内容。
+如果要发布到自己的 Docker Hub 账号，在 GitHub 仓库的 Actions secrets 中设置 `DOCKERHUB_USERNAME`（Docker Hub 用户名）和 `DOCKERHUB_TOKEN`（具有推送权限的 Docker Hub 访问令牌）。在 `feature/copymanga-source-browser` 分支有新提交时，`Publish CopyManga to Docker Hub` 工作流会发布 `<Docker Hub 用户名>/copymanga-nasdownloader:latest` 及对应的 SHA 标签；未配置凭据时会跳过发布。令牌不要写入仓库或聊天内容。
 
 ### 使用webUI/docker
 
