@@ -33,6 +33,11 @@
                         persistent-hint variant="outlined"></v-combobox>
           </v-col>
           <v-col cols="12">
+            <v-text-field v-model="sysSettings.cm_web_url" density="comfortable"
+                          label="CopyManga 官网地址" hint="用于全部漫画、筛选和受限时的公开详情资料，默认 https://www.copy4000.com"
+                          persistent-hint variant="outlined"></v-text-field>
+          </v-col>
+          <v-col cols="12">
             <v-text-field v-model="sysSettings.cm_proxy" density="comfortable" hint="留空则不使用代理"
                           label="HTTP 代理" persistent-hint placeholder="http://127.0.0.1:7890"
                           variant="outlined"></v-text-field>

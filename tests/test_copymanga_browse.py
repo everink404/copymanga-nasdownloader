@@ -3,6 +3,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
+from bs4 import BeautifulSoup
 
 from fastapi import HTTPException
 
@@ -28,10 +29,63 @@ class BrowseTests(unittest.TestCase):
             self.assertEqual([item['path_word'] for item in result['items']], ['first', 'second'])
             self.assertEqual(result['items'][0]['authors'], ['A'])
             self.assertEqual(result['total'], 8)
-            self.assertEqual(fetch.call_args.args[0], '/api/v3/search/comic')
+            self.assertEqual(fetch.call_args.args[0], '/api/kb/web/searchcl/comics')
+            self.assertEqual(fetch.call_args.args[1]['q'], 'key')
+            self.assertEqual(fetch.call_args.args[1]['platform'], 2)
             result = browse.browse(rank='week')
-            self.assertEqual(result['total'], 2)
+            self.assertEqual(result['total'], 8)
             self.assertEqual(fetch.call_args.args[0], '/api/v3/ranks')
+            self.assertEqual(fetch.call_args.args[1]['limit'], 20)
+            result = browse.browse(rank='week', offset=20)
+            self.assertEqual(fetch.call_args.args[1]['offset'], 20)
+            self.assertFalse(result['has_more'])
+
+    def test_missing_total_is_unknown_and_invalid_items_are_not_empty_results(self):
+        with patch.object(browse, '_fetch', return_value={'list': [{'path_word': 'one'}]}):
+            result = browse.browse('x', limit=1)
+            self.assertIsNone(result['total'])
+            self.assertTrue(result['has_more'])
+        with patch.object(browse, '_fetch', return_value={'list': [{'name': 'lost'}]}):
+            with self.assertRaises(HTTPException):
+                browse.browse('x')
+
+    def test_all_browse_uses_server_filters_and_pagination(self):
+        soup = BeautifulSoup('''<div class="exemptComic-box" total="21"
+          list="[{'path_word': 'last', 'name': 'Last', 'status': 1}]"></div>''', 'html.parser')
+        with patch.object(browse, '_web_page', return_value=soup) as page:
+            result = browse.browse(mode='all', offset=20, theme='aiqing', region='0', status='1')
+            self.assertEqual(result['total'], 21)
+            self.assertEqual(result['items'][0]['status'], '已完结')
+            self.assertFalse(result['has_more'])
+            self.assertEqual(page.call_args.args[1]['offset'], 20)
+            self.assertEqual(page.call_args.args[1]['theme'], 'aiqing')
+            self.assertEqual(page.call_args.args[1]['region'], '0')
+        with patch.object(browse, '_web_page', return_value=BeautifulSoup('<html>Blocked</html>', 'html.parser')):
+            with self.assertRaises(HTTPException):
+                browse.browse(mode='all')
+
+    def test_search_rejects_unsupported_filter_combination(self):
+        with self.assertRaises(HTTPException) as error:
+            browse.browse('x', theme='aiqing')
+        self.assertEqual(error.exception.status_code, 400)
+
+    def test_210_falls_back_to_public_metadata_but_cannot_subscribe(self):
+        page = BeautifulSoup('''<div class="comicParticulars-title-right"><h6 title="Public">Public</h6>
+          <a href="/author/a/comics">Author</a><li>狀態：連載中</li></div>
+          <div class="comicParticulars-left-img"><img data-src="cover.jpg"></div>
+          <p class="intro">Description</p>''', 'html.parser')
+        with patch.object(browse, '_fetch', side_effect=HTTPException(503, 'CopyManga 返回 210：站点说明')), \
+             patch.object(browse, '_web_page', return_value=page):
+            result = browse.detail('comic')
+            self.assertEqual(result['name'], 'Public')
+            self.assertEqual(result['authors'], ['Author'])
+            self.assertTrue(result['metadata_only'])
+            self.assertEqual(result['groups'], [])
+            with tempfile.TemporaryDirectory() as directory:
+                path = str(Path(directory, 'updater.json'))
+                with self.assertRaises(HTTPException):
+                    browse.subscribe(SubscriptionInput('all'), path)
+                self.assertFalse(Path(path).exists())
 
     def test_detail_groups_and_chapter_pagination(self):
         with patch.object(browse, '_fetch', side_effect=[
@@ -87,16 +141,40 @@ class BrowseTests(unittest.TestCase):
         with patch.object(browse, '_handler') as handler:
             handler.return_value.get.return_value = None
             handler.return_value.last_status_code = 210
+            handler.return_value.last_message = '请更新正版 APP 并等待1小时'
             with self.assertRaises(HTTPException) as blocked:
                 browse.browse()
             self.assertEqual(blocked.exception.status_code, 503)
             self.assertIn('210', blocked.exception.detail)
+            self.assertIn('等待1小时', blocked.exception.detail)
 
             handler.return_value.last_status_code = None
             handler.return_value.last_error_kind = 'network'
             with self.assertRaises(HTTPException) as disconnected:
                 browse.browse()
             self.assertIn('API 地址和代理', disconnected.exception.detail)
+            handler.return_value.last_error_kind = 'proxy_auth'
+            with self.assertRaises(HTTPException) as proxy:
+                browse.browse()
+            self.assertIn('407', proxy.exception.detail)
+
+    def test_proxy_change_invalidates_login_cache_and_uses_token_auth(self):
+        with patch.object(browse.config, 'CM_USERNAME', 'user'), \
+             patch.object(browse.config, 'CM_PASSWORD', 'secret'), \
+             patch.object(browse.config, 'CM_TOKEN', ''), \
+             patch.object(browse.config, 'CM_PROXY', {'http': 'http://first:7890'}), \
+             patch.object(browse, '_cached_login', (None, None, 0)), \
+             patch.object(browse, 'loginhelper', return_value='test-token') as login, \
+             patch.object(browse, 'RequestHandler') as handler:
+            browse._handler()
+            self.assertEqual(handler.call_args.kwargs['headers']['authorization'], 'Token test-token')
+            browse._handler()
+            self.assertEqual(login.call_count, 1)
+            browse.config.CM_PROXY = {'http': 'http://second:7890'}
+            browse._handler()
+            self.assertEqual(login.call_count, 2)
+            browse._handler(auth=False)
+            self.assertNotIn('authorization', handler.call_args.kwargs['headers'])
 
 
 if __name__ == '__main__':

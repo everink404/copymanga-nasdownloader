@@ -70,6 +70,7 @@ class RequestHandler:
         self.api = config.CM_API_URL.rstrip('/')  # 确保API地址没有结尾斜杠
         self.last_status_code = None
         self.last_error_kind = None
+        self.last_message = None
         
         # httpx proxy format: {"http://": "...", "https://": "..."} or just a string
         mounts = {}
@@ -98,6 +99,7 @@ class RequestHandler:
         full_url = self._build_url(url)
         self.last_status_code = None
         self.last_error_kind = None
+        self.last_message = None
 
         for attempt in range(1, self.retries + 1):
             try:
@@ -120,8 +122,9 @@ class RequestHandler:
                         message = payload.get('message') or detail
                     except (ValueError, AttributeError):
                         message = response.text
+                    self.last_message = str(message or '')[:700]
                     log.error(
-                        f"[{method}] 请求失败 (状态码: 210)，URL: {full_url}，信息为：{message}；跳过当前请求，请更换代理或稍后重试")
+                        f"[{method}] 请求失败 (状态码: 210)，URL: {full_url}，信息为：{message}；跳过当前请求，请按站点说明处理")
                     return None
 
                 if response.status_code == 429:
@@ -138,6 +141,8 @@ class RequestHandler:
             except httpx.RequestError as e:
                 self.last_status_code = None
                 self.last_error_kind = 'network'
+                if isinstance(e, httpx.ProxyError) and '407' in str(e):
+                    self.last_error_kind = 'proxy_auth'
                 log.warning(f"[{method}] 请求异常: {e}，URL: {full_url}，尝试第 {attempt}/{self.retries} 次...")
 
             if attempt < self.retries:

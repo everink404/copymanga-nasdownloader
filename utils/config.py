@@ -16,6 +16,7 @@ CBZ_PATH = ""
 USE_CM_CNAME = False
 LOG_LEVEL = "INFO"
 CM_API_URL = ""
+CM_WEB_URL = ""
 CM_TOKEN = ""
 CM_USERNAME = ""
 CM_PASSWORD = ""
@@ -44,7 +45,7 @@ def load_system_config():
 
 def reload():
     global DOWNLOAD_PATH, CBZ_PATH, USE_CM_CNAME, LOG_LEVEL
-    global CM_API_URL, CM_TOKEN, CM_USERNAME, CM_PASSWORD, CM_PROXY
+    global CM_API_URL, CM_WEB_URL, CM_TOKEN, CM_USERNAME, CM_PASSWORD, CM_PROXY
     global CM_RATE_LIMIT_PER_MINUTE
     global PUSH_ENABLE, PUSH_SERVER, PUSH_USER, PUSH_TOKEN, PUSH_SUMMARY_ONLY, PUSH_MARKDOWN
 
@@ -70,6 +71,7 @@ def reload():
 
     # Copymanga配置
     CM_API_URL = get_conf("api_url", "CMNAS_API_URL", 'https://api.mangacopy.com')
+    CM_WEB_URL = get_conf("cm_web_url", "CMNAS_CM_WEB_URL", 'https://www.copy4000.com')
     CM_TOKEN = get_conf("cm_token", "CMNAS_CM_TOKEN", '')
     CM_USERNAME = get_conf("cm_username", "CMNAS_CM_USERNAME", '')
     CM_PASSWORD = get_conf("cm_password", "CMNAS_CM_PASSWORD", '')

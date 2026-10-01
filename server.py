@@ -149,10 +149,17 @@ class CopyMangaSubscription(BaseModel):
 
 
 @app.get('/api/copymanga/browse')
-def browse_copymanga(q: str = '', rank: str = 'day', offset: int = 0, limit: int = 20):
-    if not 0 <= offset <= 10000 or not 1 <= limit <= 50 or len(q) > 100:
+def browse_copymanga(q: str = '', rank: str = 'day', offset: int = 0, limit: int = 20,
+                    mode: str = 'rank', theme: str = '', ordering: str = '-datetime_updated',
+                    region: str = '', status: str = '', q_type: str = ''):
+    if not 0 <= offset <= 1000000 or not 1 <= limit <= 50 or len(q) > 100 or len(theme) > 160:
         raise HTTPException(400, '搜索参数无效')
-    return copymanga_browse.browse(q, rank, offset, limit)
+    return copymanga_browse.browse(q, rank, offset, limit, mode, theme, ordering, region, status, q_type)
+
+
+@app.get('/api/copymanga/filters')
+def copymanga_filters():
+    return copymanga_browse.filters()
 
 
 @app.get('/api/copymanga/comics/{path_word}')
@@ -193,6 +200,7 @@ def get_system_settings():
         "use_cm_cname": config.USE_CM_CNAME,
         "log_level": config.LOG_LEVEL,
         "api_url": config.CM_API_URL,
+        "cm_web_url": config.CM_WEB_URL,
         "cm_username": config.CM_USERNAME,
         "cm_password": config.CM_PASSWORD,
         "cm_proxy": config.CM_PROXY.get('http', ''),

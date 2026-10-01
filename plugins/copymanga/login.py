@@ -55,7 +55,6 @@ def loginhelper(username: str, password: str, url: str) -> str:
     password_enc = b64encode(password_enc.encode()).decode()
     # 登录
     res = login(**{"username": username, "password": password_enc, "url": url, "salt": salt, "proxy": config.CM_PROXY})
-    logging.debug(res)
     return res
 
 

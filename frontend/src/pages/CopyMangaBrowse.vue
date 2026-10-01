@@ -4,16 +4,39 @@
       <v-row class="mb-2" align="center">
         <v-col cols="12" sm="8">
           <v-text-field v-model="query" label="搜索 CopyManga 漫画" prepend-inner-icon="mdi-magnify"
-                        hide-details clearable variant="outlined" @keyup.enter="loadList(0)" />
+                        hide-details clearable variant="outlined" @keyup.enter="loadList(0, true)" />
         </v-col>
-        <v-col cols="12" sm="4"><v-btn color="primary" block :loading="listLoading" @click="loadList(0)">搜索</v-btn></v-col>
+        <v-col cols="12" sm="4"><v-btn color="primary" block :loading="listLoading" @click="loadList(0, true)">搜索 / 刷新</v-btn></v-col>
       </v-row>
-      <v-btn-toggle v-if="!query" v-model="rank" color="primary" mandatory class="mb-5" @update:model-value="loadList(0)">
+      <v-btn-toggle v-if="!query" v-model="browseMode" color="primary" mandatory class="mb-3" @update:model-value="loadList(0, true)">
+        <v-btn value="all">全部漫画</v-btn><v-btn value="rank">排行榜</v-btn>
+      </v-btn-toggle>
+      <v-select v-if="query" v-model="searchScope" :items="searchScopes" label="搜索范围" variant="outlined" />
+      <p v-if="query" class="mb-3">搜索使用关键词和搜索范围；分类、地区、状态筛选用于「全部漫画」。</p>
+      <v-btn-toggle v-if="!query && browseMode === 'rank'" v-model="rank" color="primary" mandatory class="mb-5" @update:model-value="loadList(0, true)">
         <v-btn value="day">日榜</v-btn><v-btn value="week">周榜</v-btn>
         <v-btn value="month">月榜</v-btn><v-btn value="total">总榜</v-btn>
       </v-btn-toggle>
+      <v-expansion-panels v-if="!query && browseMode === 'all'" class="mb-4">
+        <v-expansion-panel title="分类与排序">
+          <v-expansion-panel-text>
+            <v-alert v-if="filterError" type="warning" class="mb-3">{{ filterError }}
+              <v-btn variant="text" @click="loadFilters">重试分类</v-btn>
+            </v-alert>
+            <v-row>
+              <v-col cols="12" sm="6"><v-select v-model="theme" :items="themes" :loading="filterLoading"
+                label="题材分类" variant="outlined" /></v-col>
+              <v-col cols="12" sm="6"><v-select v-model="ordering" :items="sorts" label="排序" variant="outlined" /></v-col>
+              <v-col cols="12" sm="6"><v-select v-model="region" :items="regions" label="地区" variant="outlined" /></v-col>
+              <v-col cols="12" sm="6"><v-select v-model="status" :items="statuses" label="状态" variant="outlined" /></v-col>
+            </v-row>
+            <v-btn color="primary" :loading="listLoading" @click="loadList(0, true)">应用筛选</v-btn>
+            <v-btn variant="text" @click="resetFilters">重置</v-btn>
+          </v-expansion-panel-text>
+        </v-expansion-panel>
+      </v-expansion-panels>
       <v-alert v-if="listError" type="error" class="mb-4">{{ listError }}
-        <v-btn variant="text" @click="loadList(offset)">重试</v-btn>
+        <v-btn variant="text" @click="loadList(requestedOffset)">重试</v-btn>
         <v-btn variant="text" @click="openSettings">检查 API 设置</v-btn>
       </v-alert>
       <v-alert v-if="detailError" type="error" class="mb-4">{{ detailError }}
@@ -32,15 +55,18 @@
         </v-col>
       </v-row>
       <v-alert v-else-if="!listLoading && !listError && !detailError" type="info" variant="tonal">暂无结果</v-alert>
-      <div v-if="query && !listLoading && !listError" class="d-flex align-center justify-center ga-3 mt-5">
-        <v-btn :disabled="offset === 0" @click="loadList(Math.max(0, offset - 20))">上一页</v-btn>
-        <span>第 {{ Math.floor(offset / 20) + 1 }} 页</span>
-        <v-btn :disabled="items.length < 20 || (total !== null && offset + 20 >= total)" @click="loadList(offset + 20)">下一页</v-btn>
+      <div v-if="!listLoading && !listError" class="d-flex flex-wrap align-center justify-center ga-3 mt-5">
+        <v-btn :disabled="offset === 0" @click="loadList(Math.max(0, offset - pageSize))">上一页</v-btn>
+        <span>第 {{ Math.floor(offset / pageSize) + 1 }} 页<span v-if="total !== null"> · 共 {{ total }} 部</span></span>
+        <v-btn :disabled="!hasMore" @click="loadList(offset + pageSize)">下一页</v-btn>
       </div>
     </div>
 
     <div v-else>
-      <v-btn variant="text" prepend-icon="mdi-arrow-left" class="mb-4" @click="comic = null">返回漫画列表</v-btn>
+      <v-btn variant="text" prepend-icon="mdi-arrow-left" class="mb-4" @click="returnToList">返回漫画列表</v-btn>
+      <v-alert v-if="comic.warning" type="warning" class="mb-4">{{ comic.warning }}
+        <v-btn variant="text" :loading="detailLoading" @click="openComic(comic.path_word)">重试完整详情</v-btn>
+      </v-alert>
       <v-alert v-if="detailError" type="error" class="mb-4">{{ detailError }} <v-btn variant="text" @click="openComic(comic.path_word)">重试</v-btn></v-alert>
       <v-row>
         <v-col cols="5" sm="3" md="2"><v-img :src="comic.cover" aspect-ratio="0.75" cover rounded="lg" /></v-col>
@@ -54,6 +80,7 @@
         </v-col>
       </v-row>
 
+      <template v-if="!comic.metadata_only">
       <v-divider class="my-5" />
       <v-select v-model="group" :items="comic.groups" item-title="name" item-value="path_word"
                 label="章节分组" variant="outlined" @update:model-value="changeGroup" />
@@ -88,18 +115,42 @@
         <v-btn color="primary" :loading="saving" :disabled="chapterLoading || !!chapterError || !chapterItems.length || (mode === 'from' && !startChapter)"
                @click="addSubscription">确认加入订阅</v-btn>
       </template>
+      </template>
     </div>
   </div>
 </template>
 
 <script setup>
-import {computed, inject, onMounted, ref} from 'vue'
+import {computed, inject, nextTick, onMounted, onBeforeUnmount, ref} from 'vue'
 import axios from 'axios'
 
 const showMsg = inject('showMsg')
 const openSettings = inject('openSettings')
 const query = ref('')
 const rank = ref('day')
+const browseMode = ref('all')
+const theme = ref('')
+const ordering = ref('-datetime_updated')
+const region = ref('')
+const status = ref('')
+const searchScope = ref('')
+const searchScopes = [{title: '全部', value: ''}, {title: '漫画名称', value: 'name'},
+  {title: '作者', value: 'author'}, {title: '别名', value: 'local'}]
+const sorts = [{title: '最近更新', value: '-datetime_updated'}, {title: '最早更新', value: 'datetime_updated'},
+  {title: '热度从高到低', value: '-popular'}, {title: '热度从低到高', value: 'popular'}]
+const regions = [{title: '全部地区', value: ''}, {title: '日漫', value: '0'}, {title: '韩漫', value: '1'}, {title: '美漫', value: '2'}]
+const statuses = [{title: '全部状态', value: ''}, {title: '连载中', value: '0'}, {title: '已完结', value: '1'}, {title: '短篇', value: '2'}]
+const themes = ref([{title: '全部分类', value: ''}])
+const filterError = ref('')
+const filterLoading = ref(false)
+const hasMore = ref(false)
+const pageSize = 20
+const requestedOffset = ref(0)
+let appliedParams = {}
+let listController
+let detailGeneration = 0
+let chapterGeneration = 0
+let listScroll = 0
 const items = ref([])
 const offset = ref(0)
 const total = ref(null)
@@ -131,19 +182,33 @@ const errorText = (error) => error.response?.data?.detail || error.message || '�
 const subscribed = computed(() => subscriptions.value.some(item =>
   item.path_word === comic.value?.path_word && (item.group_word || 'default') === group.value))
 
-async function loadList(nextOffset = 0) {
+async function loadList(nextOffset = 0, apply = false) {
+  if (apply) {
+    const q = (query.value || '').trim()
+    appliedParams = {q, mode: browseMode.value, rank: rank.value, q_type: searchScope.value,
+      theme: !q && browseMode.value === 'all' ? theme.value : '', ordering: ordering.value,
+      region: !q && browseMode.value === 'all' ? region.value : '', status: !q && browseMode.value === 'all' ? status.value : ''}
+  }
+  listController?.abort()
+  const controller = new AbortController()
+  listController = controller
+  requestedOffset.value = nextOffset
   listLoading.value = true
   listError.value = ''
   try {
-    const response = await axios.get('/api/copymanga/browse', {params: {q: query.value || '', rank: rank.value, offset: nextOffset, limit: 20}})
+    const response = await axios.get('/api/copymanga/browse', {signal: controller.signal,
+      params: {...appliedParams, offset: nextOffset, limit: pageSize}})
+    if (controller !== listController) return
     items.value = response.data.items
     total.value = response.data.total
     offset.value = nextOffset
+    hasMore.value = response.data.has_more
   } catch (error) {
+    if (controller !== listController || axios.isCancel(error)) return
     items.value = []
     listError.value = errorText(error)
   } finally {
-    listLoading.value = false
+    if (controller === listController) listLoading.value = false
   }
 }
 
@@ -157,26 +222,34 @@ async function loadSubscriptions() {
 }
 
 async function openComic(pathWord) {
+  const generation = ++detailGeneration
+  if (!comic.value) listScroll = window.scrollY
   selectedPathWord.value = pathWord
   detailLoading.value = true
   detailError.value = ''
   try {
     const response = await axios.get(`/api/copymanga/comics/${encodeURIComponent(pathWord)}`)
+    if (generation !== detailGeneration) return
     comic.value = response.data
     saveName.value = comic.value.name
     group.value = comic.value.groups[0]?.path_word || 'default'
     mode.value = 'future'
     startChapter.value = null
-    await Promise.all([loadChapters(0), loadSubscriptions()])
+    chapterItems.value = []
+    chapterError.value = ''
+    saveError.value = ''
+    if (!comic.value.metadata_only) await Promise.all([loadChapters(0), loadSubscriptions()])
   } catch (error) {
+    if (generation !== detailGeneration) return
     detailError.value = errorText(error)
   } finally {
-    detailLoading.value = false
+    if (generation === detailGeneration) detailLoading.value = false
   }
 }
 
 async function loadChapters(nextOffset = 0) {
   if (!comic.value) return
+  const generation = ++chapterGeneration
   chapterLoading.value = true
   chapterError.value = ''
   chapterItems.value = []
@@ -184,12 +257,14 @@ async function loadChapters(nextOffset = 0) {
   try {
     const response = await axios.get(`/api/copymanga/comics/${encodeURIComponent(comic.value.path_word)}/groups/${encodeURIComponent(group.value)}/chapters`,
       {params: {offset: nextOffset, limit: 100}})
+    if (generation !== chapterGeneration) return
     chapterItems.value = response.data.items
     chapterTotal.value = response.data.total
   } catch (error) {
+    if (generation !== chapterGeneration) return
     chapterError.value = errorText(error)
   } finally {
-    chapterLoading.value = false
+    if (generation === chapterGeneration) chapterLoading.value = false
   }
 }
 
@@ -217,5 +292,32 @@ async function addSubscription() {
   }
 }
 
-onMounted(() => loadList(0))
+async function loadFilters() {
+  filterLoading.value = true
+  filterError.value = ''
+  try {
+    const response = await axios.get('/api/copymanga/filters')
+    themes.value = [{title: '全部分类', value: ''}, ...response.data.themes]
+  } catch (error) { filterError.value = errorText(error) }
+  finally { filterLoading.value = false }
+}
+
+function resetFilters() {
+  theme.value = region.value = status.value = ''
+  ordering.value = '-datetime_updated'
+  loadList(0, true)
+}
+
+async function returnToList() {
+  ++detailGeneration
+  ++chapterGeneration
+  chapterLoading.value = false
+  detailLoading.value = false
+  comic.value = null
+  await nextTick()
+  window.scrollTo(0, listScroll)
+}
+
+onMounted(() => { loadList(0, true); loadFilters() })
+onBeforeUnmount(() => { listController?.abort(); ++detailGeneration; ++chapterGeneration })
 </script>

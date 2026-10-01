@@ -97,6 +97,11 @@ class RequestTests(unittest.TestCase):
             handler.get('/two')
         self.assertEqual(self.clock.sleeps, [])
 
+    def test_proxy_authentication_failure_is_identified(self):
+        handler = self.handler([httpx.ProxyError('407 Proxy Authentication Required')] * 3)
+        self.assertIsNone(handler.get('/rank'))
+        self.assertEqual(handler.last_error_kind, 'proxy_auth')
+
     def test_210_json_and_non_json_do_not_exit(self):
         for response in (httpx.Response(210, json={'message': 'blocked'}),
                          httpx.Response(210, text='<html>blocked</html>')):
