@@ -68,6 +68,8 @@ class RequestHandler:
         self.timeout = timeout
         self.copymanga = copymanga
         self.api = config.CM_API_URL.rstrip('/')  # 确保API地址没有结尾斜杠
+        self.last_status_code = None
+        self.last_error_kind = None
         
         # httpx proxy format: {"http://": "...", "https://": "..."} or just a string
         mounts = {}
@@ -94,6 +96,8 @@ class RequestHandler:
 
     def request(self, method, url, **kwargs):
         full_url = self._build_url(url)
+        self.last_status_code = None
+        self.last_error_kind = None
 
         for attempt in range(1, self.retries + 1):
             try:
@@ -102,13 +106,18 @@ class RequestHandler:
                 # 保持 headers 同步，因为有些插件会动态修改 Handler.headers
                 self.client.headers.update(self.headers)
                 response = self.client.request(method, full_url, **kwargs)
+                self.last_status_code = response.status_code
+                self.last_error_kind = 'http'
 
                 if response.status_code in (200, 201, 202):
+                    self.last_error_kind = None
                     return response
                 
                 if response.status_code == 210:
                     try:
-                        message = response.json().get('message')
+                        payload = response.json()
+                        detail = payload.get('results', {}).get('detail')
+                        message = payload.get('message') or detail
                     except (ValueError, AttributeError):
                         message = response.text
                     log.error(
@@ -127,6 +136,8 @@ class RequestHandler:
                     f"[{method}] 请求失败 (状态码: {response.status_code})，URL: {full_url}，尝试第 {attempt}/{self.retries} 次...")
 
             except httpx.RequestError as e:
+                self.last_status_code = None
+                self.last_error_kind = 'network'
                 log.warning(f"[{method}] 请求异常: {e}，URL: {full_url}，尝试第 {attempt}/{self.retries} 次...")
 
             if attempt < self.retries:

@@ -12,8 +12,16 @@
         <v-btn value="day">日榜</v-btn><v-btn value="week">周榜</v-btn>
         <v-btn value="month">月榜</v-btn><v-btn value="total">总榜</v-btn>
       </v-btn-toggle>
-      <v-alert v-if="listError" type="error" class="mb-4">{{ listError }} <v-btn variant="text" @click="loadList(offset)">重试</v-btn></v-alert>
+      <v-alert v-if="listError" type="error" class="mb-4">{{ listError }}
+        <v-btn variant="text" @click="loadList(offset)">重试</v-btn>
+        <v-btn variant="text" @click="openSettings">检查 API 设置</v-btn>
+      </v-alert>
+      <v-alert v-if="detailError" type="error" class="mb-4">{{ detailError }}
+        <v-btn variant="text" @click="openComic(selectedPathWord)">重试详情</v-btn>
+        <v-btn variant="text" @click="openSettings">检查 API 设置</v-btn>
+      </v-alert>
       <v-progress-linear v-if="listLoading" indeterminate color="primary" class="mb-4" />
+      <v-progress-linear v-if="detailLoading" indeterminate color="primary" class="mb-4" />
       <v-row v-if="!listLoading && items.length">
         <v-col v-for="item in items" :key="item.path_word" cols="6" sm="4" md="3" lg="2">
           <v-card class="fill-height" border @click="openComic(item.path_word)">
@@ -23,7 +31,7 @@
           </v-card>
         </v-col>
       </v-row>
-      <v-alert v-else-if="!listLoading && !listError" type="info" variant="tonal">暂无结果</v-alert>
+      <v-alert v-else-if="!listLoading && !listError && !detailError" type="info" variant="tonal">暂无结果</v-alert>
       <div v-if="query && !listLoading && !listError" class="d-flex align-center justify-center ga-3 mt-5">
         <v-btn :disabled="offset === 0" @click="loadList(Math.max(0, offset - 20))">上一页</v-btn>
         <span>第 {{ Math.floor(offset / 20) + 1 }} 页</span>
@@ -89,6 +97,7 @@ import {computed, inject, onMounted, ref} from 'vue'
 import axios from 'axios'
 
 const showMsg = inject('showMsg')
+const openSettings = inject('openSettings')
 const query = ref('')
 const rank = ref('day')
 const items = ref([])
@@ -98,6 +107,8 @@ const listLoading = ref(false)
 const listError = ref('')
 const comic = ref(null)
 const detailError = ref('')
+const detailLoading = ref(false)
+const selectedPathWord = ref('')
 const group = ref('default')
 const chapterItems = ref([])
 const chapterOffset = ref(0)
@@ -129,6 +140,7 @@ async function loadList(nextOffset = 0) {
     total.value = response.data.total
     offset.value = nextOffset
   } catch (error) {
+    items.value = []
     listError.value = errorText(error)
   } finally {
     listLoading.value = false
@@ -145,6 +157,8 @@ async function loadSubscriptions() {
 }
 
 async function openComic(pathWord) {
+  selectedPathWord.value = pathWord
+  detailLoading.value = true
   detailError.value = ''
   try {
     const response = await axios.get(`/api/copymanga/comics/${encodeURIComponent(pathWord)}`)
@@ -156,7 +170,8 @@ async function openComic(pathWord) {
     await Promise.all([loadChapters(0), loadSubscriptions()])
   } catch (error) {
     detailError.value = errorText(error)
-    showMsg(detailError.value, 'error')
+  } finally {
+    detailLoading.value = false
   }
 }
 

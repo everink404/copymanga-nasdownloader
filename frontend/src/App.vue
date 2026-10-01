@@ -172,6 +172,7 @@ const showMsg = (text, color = 'success') => {
   snackbar.value = {show: true, text, color}
 }
 provide('showMsg', showMsg)
+provide('openSettings', () => { currentView.value = 'settings' })
 
 const openConfirm = (title, content) => {
   confirmState.title = title

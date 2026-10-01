@@ -28,8 +28,9 @@
                           variant="outlined"></v-text-field>
           </v-col>
           <v-col cols="12">
-            <v-text-field v-model="sysSettings.api_url" density="comfortable" label="API 地址"
-                          placeholder="https://api.mangacopy.com" variant="outlined"></v-text-field>
+            <v-combobox v-model="sysSettings.api_url" :items="apiDomains" density="comfortable"
+                        label="CopyManga API 地址" hint="可选择常见域名或输入自定义地址；更换后点击保存并生效"
+                        persistent-hint variant="outlined"></v-combobox>
           </v-col>
           <v-col cols="12">
             <v-text-field v-model="sysSettings.cm_proxy" density="comfortable" hint="留空则不使用代理"
@@ -165,6 +166,12 @@ import axios from 'axios'
 const showMsg = inject('showMsg')
 const sysSettings = ref({})
 const savingSettings = ref(false)
+const apiDomains = [
+  'https://api.mangacopy.com',
+  'https://mapi.copy20.com',
+  'https://api.2026copy.com',
+  'https://api.copy4000.com',
+]
 
 const init = async () => {
   try {

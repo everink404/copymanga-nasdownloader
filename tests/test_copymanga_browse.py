@@ -83,6 +83,21 @@ class BrowseTests(unittest.TestCase):
                 browse.chapters('comic', 'default')
             self.assertEqual(error.exception.status_code, 502)
 
+    def test_browser_explains_site_limit_and_connection_failure(self):
+        with patch.object(browse, '_handler') as handler:
+            handler.return_value.get.return_value = None
+            handler.return_value.last_status_code = 210
+            with self.assertRaises(HTTPException) as blocked:
+                browse.browse()
+            self.assertEqual(blocked.exception.status_code, 503)
+            self.assertIn('210', blocked.exception.detail)
+
+            handler.return_value.last_status_code = None
+            handler.return_value.last_error_kind = 'network'
+            with self.assertRaises(HTTPException) as disconnected:
+                browse.browse()
+            self.assertIn('API 地址和代理', disconnected.exception.detail)
+
 
 if __name__ == '__main__':
     unittest.main()

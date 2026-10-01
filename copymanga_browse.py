@@ -49,7 +49,18 @@ def _fetch(path, params=None):
     finally:
         handler.client.close()
     if response is None:
-        raise HTTPException(502, "CopyManga 请求失败或受到站点限制，请稍后重试并检查账号、代理设置")
+        status = handler.last_status_code
+        if status == 210:
+            raise HTTPException(503, "CopyManga 返回 210：当前请求受到站点限制。请稍后重试；如持续出现，请检查账号和网络。")
+        if status == 429:
+            raise HTTPException(503, "CopyManga 返回 429：请求过于频繁，重试后仍未恢复。请稍后再试。")
+        if status in (401, 403):
+            raise HTTPException(502, "CopyManga 拒绝访问，请检查账号或 API 地址。")
+        if handler.last_error_kind == 'network':
+            raise HTTPException(502, "无法连接 CopyManga API，请在系统参数配置中检查 API 地址和代理。")
+        if isinstance(status, int):
+            raise HTTPException(502, f"CopyManga API 返回 HTTP {status}，请稍后重试或检查 API 地址。")
+        raise HTTPException(502, "CopyManga 请求失败，请检查 API 地址、账号和代理。")
     try:
         payload = response.json()
         if not isinstance(payload, dict) or payload.get('code') not in (None, 200):
