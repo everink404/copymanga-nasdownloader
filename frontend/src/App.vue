@@ -13,7 +13,7 @@
         <v-list-item
             class="mb-4"
             prepend-icon="mdi-download-box"
-            subtitle="v2.1"
+            :subtitle="appVersion"
             title="Copymanga-NasDownloader"
         ></v-list-item>
         <v-divider class="mb-2 opacity-20"></v-divider>
@@ -134,6 +134,7 @@ import Settings from './pages/Settings.vue'
 import JsonEditor from './pages/JsonEditor.vue'
 
 const {mobile} = useDisplay()
+const appVersion = import.meta.env.VITE_APP_VERSION || 'dev'
 
 const drawer = ref(!mobile.value)
 const rail = ref(true)

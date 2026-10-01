@@ -5,6 +5,8 @@ on:
     branches:
       - fix/copymanga-rate-limit-recovery
       - feature/copymanga-source-browser
+    tags:
+      - 'v[0-9]*.[0-9]*.[0-9]*'
   workflow_dispatch:
 
 permissions:
@@ -28,6 +30,18 @@ jobs:
           python -m pip install httpx python-dotenv natsort fastapi beautifulsoup4
           python -m unittest discover -s tests -v
       - uses: docker/setup-buildx-action@v3
+      - name: Prepare image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          flavor: latest=auto
+          tags: |
+            type=semver,pattern=v{{version}}
+            type=semver,pattern=v{{major}}.{{minor}}
+            type=raw,value=browse-preview,enable=${{ github.ref_name == 'feature/copymanga-source-browser' }}
+            type=raw,value=copymanga-fix,enable=${{ github.ref_name == 'fix/copymanga-rate-limit-recovery' }}
+            type=raw,value=sha-${{ github.sha }}
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -40,14 +54,12 @@ jobs:
           file: ./Dockerfile
           platforms: linux/amd64
           push: true
-          tags: |
-            ghcr.io/${{ github.repository }}:copymanga-fix
-            ghcr.io/${{ github.repository }}:${{ github.ref_name == 'feature/copymanga-source-browser' && 'browse-preview' || 'copymanga-fix' }}
-            ghcr.io/${{ github.repository }}:${{ github.ref_name == 'feature/copymanga-source-browser' && 'latest' || 'copymanga-fix' }}
-            ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: APP_VERSION=${{ steps.meta.outputs.version }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Verify published container starts

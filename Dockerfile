@@ -1,5 +1,7 @@
 FROM node:22-alpine as frontend-builder
 WORKDIR /app/frontend
+ARG APP_VERSION=dev
+ENV VITE_APP_VERSION=$APP_VERSION
 COPY frontend/package.json ./
 RUN npm install --legacy-peer-deps
 COPY frontend/ .

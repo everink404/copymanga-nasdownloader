@@ -33,9 +33,11 @@ WebUI 的「漫画源」页可以浏览 CopyManga 日/周/月/总榜或搜索漫
 
 若「漫画源」显示红色错误，请按提示区分原因：`210` 是 CopyManga 站点限制当前请求，`429` 是请求过于频繁，连接失败则应检查 NAS 的网络、代理和 API 地址。页面上的「检查 API 设置」可跳转到「系统设置」，在 CopyManga API 地址中选择常见域名或填写自定义地址，然后点击「保存并生效」再重试。域名可切换并不保证绕过站点的 210 限制；详情及章节接口能否使用仍取决于 CopyManga 对当前网络和账号的响应。更新镜像后保留原有 `/data`、`/downloads`、`/cbz` 映射即可，无需重新添加订阅。
 
-此功能在 `feature/copymanga-source-browser` 分支开发，发布为 `ghcr.io/everink404/copymanga-nasdownloader:latest`，同时保留 `:copymanga-fix` 与 `:browse-preview` 标签。镜像更新后需重建容器才能运行新版；保留 `/data`、`/downloads`、`/cbz` 卷映射和 8000 端口，已有订阅无需迁移。旧修复版仍可通过其 SHA 标签 `:sha-9b9530762acc6c1c99116a8abce25d7115ea07e8` 回退。
+正式版镜像位于 Docker Hub：`montequilla/copymanga-nasdownloader:latest`。每次正式发布同时提供明确版本号（如 `:v0.1.0`）、同一版本线的更新标签（如 `:v0.1`）和对应提交的完整 SHA 标签。`latest` 与版本号标签指向最新正式版；开发分支只更新 `:preview`，不会覆盖正式版。GHCR 的 `ghcr.io/everink404/copymanga-nasdownloader` 使用同样的正式版标签，开发分支使用 `:browse-preview`。镜像更新后需重建容器才能运行新版；保留 `/data`、`/downloads`、`/cbz` 卷映射和 8000 端口，已有订阅无需迁移。旧修复版仍可通过其 SHA 标签 `ghcr.io/everink404/copymanga-nasdownloader:sha-9b9530762acc6c1c99116a8abce25d7115ea07e8` 回退。
 
-如果要发布到自己的 Docker Hub 账号，在 GitHub 仓库的 Actions secrets 中设置 `DOCKERHUB_USERNAME`（Docker Hub 用户名）和 `DOCKERHUB_TOKEN`（具有推送权限的 Docker Hub 访问令牌）。在 `feature/copymanga-source-browser` 分支有新提交时，`Publish CopyManga to Docker Hub` 工作流会发布 `<Docker Hub 用户名>/copymanga-nasdownloader:latest` 及对应的 SHA 标签；未配置凭据时会跳过发布。令牌不要写入仓库或聊天内容。
+发布新正式版时，在 `feature/copymanga-source-browser` 的已验证提交上创建并推送形如 `v0.1.1` 的 Git 标签。两个发布工作流随后构建版本号、版本线、`latest` 和 SHA 标签；预发布标签（如 `v0.2.0-rc.1`）不会更新 `latest`。普通分支提交只产生预览和 SHA 标签。WebUI 左侧菜单会显示镜像构建时写入的版本号。Docker Hub 凭据来自 GitHub Actions secrets `DOCKERHUB_USERNAME` 和 `DOCKERHUB_TOKEN`；缺少凭据时 Docker Hub 发布会跳过。令牌不要写入仓库或聊天内容。
+
+飞牛 NAS 的 Docker UI 不一定检测同名标签背后的新镜像。需要在镜像页重新拉取并重建原容器；如果使用公开镜像的 Compose 配置，则先 `docker compose pull` 再重建。仓库附带的 `docker-compose.yml` 仍用于本地构建。只重启容器不会更新代码。想固定在某一版本可填 `:v0.1.0`；想跟随同一版本线可填 `:v0.1`；想跟随每次正式发布可填 `:latest`。标签本身不会让 Docker 自动拉取或弹出更新提醒。
 
 ### 使用webUI/docker
 
