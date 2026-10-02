@@ -224,6 +224,32 @@ class ChapterTests(unittest.TestCase):
             self.assertEqual(download.call_count, 2)
             self.assertEqual(download.call_args.args[0]['name'], 'other')
 
+    def test_download_login_is_deferred_and_uses_current_proxy(self):
+        with patch.object(config, 'CM_USERNAME', 'user'), \
+             patch.object(config, 'CM_PASSWORD', 'password'), \
+             patch.object(config, 'CM_PROXY', {'http': 'http://new-proxy:7890'}), \
+             patch.object(plugin, 'loginhelper', return_value='download-token') as login, \
+             patch.object(plugin, 'RequestHandler') as handler, \
+             patch.object(plugin, 'download_task') as download:
+            previous = plugin.request
+            plugin.download_batch([dict(self.task, current_chapter='')])
+            self.assertEqual(handler.call_args.kwargs['headers']['authorization'], 'Token download-token')
+            self.assertEqual(handler.call_args.kwargs['proxy'], {'http': 'http://new-proxy:7890'})
+            handler.return_value.client.close.assert_called_once()
+            self.assertIs(plugin.request, previous)
+            download.assert_called_once()
+            login.assert_called_once()
+
+    def test_download_login_failure_does_not_advance_records(self):
+        with patch.object(config, 'CM_USERNAME', 'user'), \
+             patch.object(config, 'CM_PASSWORD', 'password'), \
+             patch.object(plugin, 'loginhelper', return_value=None), \
+             patch.object(plugin, 'download_task') as download, \
+             patch.object(plugin.updater, 'update_chapter_record') as write:
+            plugin.download_batch([dict(self.task, current_chapter='')])
+            download.assert_not_called()
+            write.assert_not_called()
+
     def test_invalid_image_list_is_not_packaged(self):
         for chapter in (dict(contents=[], words=[]), dict(contents=[{'url': 'x'}], words=[])):
             with patch.object(plugin, 'get_chapter', return_value=chapter), \

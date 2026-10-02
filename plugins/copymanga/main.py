@@ -5,6 +5,7 @@ from typing import List, Dict, Any
 
 from downloader import downloader, postprocess
 from plugins.copymanga.headers import HEADERS
+from plugins.copymanga.login import loginhelper
 from updater import updater
 from utils import config
 from utils.notify import notifier
@@ -124,28 +125,44 @@ def download_batch(tasks: List[Dict[str, Any]]):
         log.info("当前没有需要更新的内容")
         return
 
-    log.info(f"检测到 {len(tasks)} 个漫画有更新内容")
+    global request
+    headers = HEADERS.copy()
+    token = config.CM_TOKEN
+    if config.CM_USERNAME and config.CM_PASSWORD:
+        token = loginhelper(username=config.CM_USERNAME, password=config.CM_PASSWORD, url=config.CM_API_URL)
+        if not token:
+            notifier.add_error('copymanga', '下载登录', '账号登录失败，未开始下载或更改完成记录')
+            return
+    headers['authorization'] = (token if token.startswith(('Token ', 'Bearer ')) else f'Token {token}') if token else ''
+    previous_request = request
+    request = RequestHandler(headers=headers, proxy=config.CM_PROXY, copymanga=True)
+    try:
+        log.info(f"检测到 {len(tasks)} 个漫画有更新内容")
 
-    for task in tasks:
-        debug_uuids = "\n".join([f"  - {uuid} ({name})" for uuid, name in task.get('chapter_infos', [])])
+        for task in tasks:
+            debug_uuids = "\n".join([f"  - {uuid} ({name})" for uuid, name in task.get('chapter_infos', [])])
 
-        debug = (
-            f"漫画名称: {task['name']}\n"
-            f"路径标识: {task['path_word']}\n"
-            f"当前章节: {task['current_chapter']}\n"
-            f"待更新数: {len(task.get('chapter_infos', []))}\n"
-            f"UUID列表:\n{debug_uuids}"
-        )
-        # 打印任务信息
-        info = (
-            f"漫画名称: {task['name']}\n"
-            f"当前章节: {task['current_chapter'] or '无'}\n"
-            f"待更新数: {len(task.get('chapter_infos', []))}"
-        )
-        log.info(info)
-        log.debug(debug)
+            debug = (
+                f"漫画名称: {task['name']}\n"
+                f"路径标识: {task['path_word']}\n"
+                f"当前章节: {task['current_chapter']}\n"
+                f"待更新数: {len(task.get('chapter_infos', []))}\n"
+                f"UUID列表:\n{debug_uuids}"
+            )
+            # 打印任务信息
+            info = (
+                f"漫画名称: {task['name']}\n"
+                f"当前章节: {task['current_chapter'] or '无'}\n"
+                f"待更新数: {len(task.get('chapter_infos', []))}"
+            )
+            log.info(info)
+            log.debug(debug)
 
-        # 开始下载该漫画
-        download_task(task)
+            # 开始下载该漫画
+            download_task(task)
 
-    log.info("所有漫画下载任务已完成")
+        log.info("所有漫画下载任务已完成")
+
+    finally:
+        request.client.close()
+        request = previous_request
