@@ -63,6 +63,11 @@ jobs:
           file: ./Dockerfile
           platforms: linux/amd64
           push: true
+          # Publish a Docker V2 manifest for NAS registry checkers.
+          # OCI attestations would wrap this single-platform image in an index.
+          provenance: false
+          sbom: false
+          outputs: type=image,push=true,oci-mediatypes=false
           tags: ${{ steps.meta.outputs.tags }}
           build-args: APP_VERSION=${{ steps.meta.outputs.version }}
           labels: |
@@ -71,3 +76,61 @@ jobs:
             org.opencontainers.image.version=${{ steps.meta.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Verify published Docker manifest
+        if: steps.credentials.outputs.ready == 'true'
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+          EXPECTED_VERSION: ${{ steps.meta.outputs.version }}
+          EXPECTED_REVISION: ${{ github.sha }}
+        run: |
+          python - <<'PY'
+          import os
+          import httpx
+          with httpx.Client(timeout=30, follow_redirects=True) as client:
+              for image in os.environ['IMAGE_TAGS'].splitlines():
+                  repository, tag = image.removeprefix('docker.io/').rsplit(':', 1)
+                  response = client.get('https://auth.docker.io/token', params={
+                      'service': 'registry.docker.io',
+                      'scope': f'repository:{repository}:pull',
+                  })
+                  response.raise_for_status()
+                  headers = {
+                      'Authorization': 'Bearer ' + response.json()['token'],
+                      'Accept': 'application/vnd.docker.distribution.manifest.v2+json',
+                  }
+                  response = client.get(
+                      f'https://registry-1.docker.io/v2/{repository}/manifests/{tag}',
+                      headers=headers,
+                  )
+                  response.raise_for_status()
+                  manifest = response.json()
+                  assert manifest['mediaType'] == headers['Accept'], image
+                  assert 'manifests' not in manifest, image
+                  response = client.get(
+                      f"https://registry-1.docker.io/v2/{repository}/blobs/{manifest['config']['digest']}",
+                      headers=headers,
+                  )
+                  response.raise_for_status()
+                  config = response.json()
+                  assert config['architecture'] == 'amd64', image
+                  labels = config['config']['Labels']
+                  assert labels['org.opencontainers.image.version'] == os.environ['EXPECTED_VERSION'], image
+                  assert labels['org.opencontainers.image.revision'] == os.environ['EXPECTED_REVISION'], image
+                  print(f'Verified Docker V2 manifest: {image}')
+          PY
+      - name: Verify Docker Hub container starts
+        if: steps.credentials.outputs.ready == 'true'
+        env:
+          IMAGE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/copymanga-nasdownloader:sha-${{ github.sha }}
+        run: |
+          docker pull "$IMAGE"
+          trap 'docker logs cmnas-smoke; docker rm -f cmnas-smoke' EXIT
+          docker run -d --name cmnas-smoke -p 127.0.0.1:18080:8000 "$IMAGE"
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:18080/ > /dev/null; then
+              echo "Docker Hub image serves the WebUI successfully"
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1

@@ -51,6 +51,8 @@ WebUI 的「漫画源」页可以浏览 CopyManga 日/周/月/总榜或搜索漫
 
 飞牛 NAS 的 Docker UI 不一定检测同名标签背后的新镜像。需要在镜像页重新拉取并重建原容器；如果使用公开镜像的 Compose 配置，则先 `docker compose pull` 再重建。仓库附带的 `docker-compose.yml` 仍用于本地构建。只重启容器不会更新代码。想固定在某一版本可填 `:v0.1.3`；想跟随同一版本线可填 `:v0.1`；想跟随每次正式发布可填 `:latest`。标签本身不会让 Docker 自动拉取或弹出更新提醒。
 
+从 v0.1.4 起, Docker Hub 镜像采用单平台 Docker V2 清单, 用于验证 NAS 更新检测的兼容性。该调整尚需在飞牛实际确认, 不保证自动提示。排查证据和验证步骤见 [Docker 更新检测说明](docs/docker-update-detection.md)。
+
 ### 使用webUI/docker
 
 如果您需要使用WebUI或者docker，请确保创建了`.env`文件
