@@ -20,8 +20,10 @@ def main():
         all_tasks = updater.process_updates()
 
         if not all_tasks:
-            log.info("没有发现需要下载的更新")
-            notifier.flush()
+            if notifier.errors:
+                log.warning("更新检查存在失败，不能确认所有订阅均无更新；请查看错误记录")
+            else:
+                log.info("没有发现需要下载的更新")
             return
 
         log.info(f"发现来自 {len(set(t['site'] for t in all_tasks))} 个站点的更新任务")

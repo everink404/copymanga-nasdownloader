@@ -35,19 +35,21 @@
 
 搜索使用当前官网公开接口 `/api/kb/web/searchcl/comics`；旧 `/api/v3/search/comic` 在验证时对已知漫画返回空结果。排行榜转发 `limit`、`offset` 并使用上游总数。全部漫画与筛选读取官网 `/comics` 的公开列表数据，不自动抓取所有页。所有请求继续共享限流，并使用现有 HTTP 代理。
 
-系统设置新增“CopyManga 官网地址”，默认 `https://www.copy4000.com`，也可通过 `CMNAS_CM_WEB_URL` 配置；API 地址仍用于搜索、排行、分类选项、详情和章节接口。旧设置缺少新字段时使用默认官网地址，原 Docker 卷和订阅格式无需改变。自行编写 Compose 时如需覆盖官网地址，将 `CMNAS_CM_WEB_URL` 传入容器环境变量；仅修改宿主 `.env` 不会自动注入未声明的环境变量。
+系统设置新增“CopyManga 官网地址”，默认 `https://www.copy4000.com`，也可通过 `CMNAS_CM_WEB_URL` 配置；API 地址仍用于搜索、排行、分类选项和图片内容接口。旧设置缺少新字段时使用默认官网地址，原 Docker 卷和订阅格式无需改变。自行编写 Compose 时如需覆盖官网地址，将 `CMNAS_CM_WEB_URL` 传入容器环境变量；仅修改宿主 `.env` 不会自动注入未声明的环境变量。
 
-详情 API 返回 210 时会展示站点提供的具体说明，并尝试显示官网公开的封面、作者和简介。**公开资料回退不代表章节目录或下载已恢复**：未取得可靠分组与目录时禁止加入订阅，可点击“重试完整详情”。现场测试的原始 210 响应要求更新正版 App 并等待限制解除；这是站点提示，不代表已确认用户行为。代理认证错误 407 会单独提示填写代理认证信息。
+简介、封面、分组和章节目录现在直接从配置的 `CMNAS_CM_WEB_URL` 官网匿名获取，不再要求 APP 详情 API 或登录成功。程序复用同一个网页会话，动态读取目录参数并解析完整目录；WebUI 分页只是展示切片，添加订阅和定时检查使用同一份完整目录。成功目录缓存 30 秒以减少重复请求；订阅检查强制刷新，修改官网地址或代理后不会复用旧缓存。只浏览目录不会请求阅读页或下载图片。
+
+官网返回空目录、缺失章节或无效数据时保留简介，并显示目录获取失败；不添加订阅、不推进完成记录。旧订阅仍兼容，但目录中找不到最后完成章节或出现同名章节时会报告检查失败，避免跳过章节。章节类型（话/卷/番外）与分组分别保留，不凭类型伪造分组。**目录恢复不代表图片下载限制解除**：下载器仍使用原有章节图片 API，可能继续遇到 210。
 
 WebUI 的「漫画源」页可以浏览 CopyManga 日/周/月/总榜或搜索漫画，查看封面、简介、作者、分组与章节目录，并直接加入「我的订阅」。添加时可选择从头下载、只追踪以后的更新，或点击目录中的一章作为下载起点（包含该章）。保存订阅不会立即下载；可使用现有「立即运行」按钮或定时任务。无需先导入账号收藏，也不提供在线阅读。浏览请求同样受 `CMNAS_CM_RATE_LIMIT_PER_MINUTE` 限流。详细范围见 [更新规划](docs/COPYMANGA_BROWSE_PLAN.md)。
 
-若「漫画源」显示红色错误，请按提示区分原因：`210` 是 CopyManga 站点限制当前请求，`429` 是请求过于频繁，连接失败则应检查 NAS 的网络、代理和 API 地址。页面上的「检查 API 设置」可跳转到「系统设置」，在 CopyManga API 地址中选择常见域名或填写自定义地址，然后点击「保存并生效」再重试。域名可切换并不保证绕过站点的 210 限制；详情及章节接口能否使用仍取决于 CopyManga 对当前网络和账号的响应。更新镜像后保留原有 `/data`、`/downloads`、`/cbz` 映射即可，无需重新添加订阅。
+若「漫画源」显示红色错误，请按提示区分原因：`210` 是 CopyManga 站点限制当前请求，`429` 是请求过于频繁，连接失败则应检查 NAS 的网络、代理和 API 地址。页面上的「检查 API 设置」可跳转到「系统设置」，在 CopyManga API 地址中选择常见域名或填写自定义地址，然后点击「保存并生效」再重试。域名可切换并不保证绕过站点的 210 限制；简介和目录失败时应检查官网地址与代理；图片内容 API 能否使用仍取决于站点响应。更新镜像后保留原有 `/data`、`/downloads`、`/cbz` 映射即可，无需重新添加订阅。
 
-正式版镜像位于 Docker Hub：`montequilla/copymanga-nasdownloader:latest`。每次正式发布同时提供明确版本号（如 `:v0.1.0`）、同一版本线的更新标签（如 `:v0.1`）和对应提交的完整 SHA 标签。`latest` 与版本号标签指向最新正式版；开发分支只更新 `:preview`，不会覆盖正式版。GHCR 的 `ghcr.io/everink404/copymanga-nasdownloader` 使用同样的正式版标签，开发分支使用 `:browse-preview`。镜像更新后需重建容器才能运行新版；保留 `/data`、`/downloads`、`/cbz` 卷映射和 8000 端口，已有订阅无需迁移。旧修复版仍可通过其 SHA 标签 `ghcr.io/everink404/copymanga-nasdownloader:sha-9b9530762acc6c1c99116a8abce25d7115ea07e8` 回退。
+正式版镜像位于 Docker Hub：`montequilla/copymanga-nasdownloader:latest`。每次正式发布同时提供明确版本号（如 `:v0.1.2`）、同一版本线的更新标签（如 `:v0.1`）和对应提交的完整 SHA 标签。`latest` 与版本号标签指向最新正式版；开发分支只更新 `:preview`，不会覆盖正式版。GHCR 的 `ghcr.io/everink404/copymanga-nasdownloader` 使用同样的正式版标签，开发分支使用 `:browse-preview`。镜像更新后需重建容器才能运行新版；保留 `/data`、`/downloads`、`/cbz` 卷映射和 8000 端口，已有订阅无需迁移。旧修复版仍可通过其 SHA 标签 `ghcr.io/everink404/copymanga-nasdownloader:sha-9b9530762acc6c1c99116a8abce25d7115ea07e8` 回退。
 
-发布新正式版时，在 `feature/copymanga-source-browser` 的已验证提交上创建并推送形如 `v0.1.1` 的 Git 标签。两个发布工作流随后构建版本号、版本线、`latest` 和 SHA 标签；预发布标签（如 `v0.2.0-rc.1`）不会更新 `latest`。普通分支提交只产生预览和 SHA 标签。WebUI 左侧菜单会显示镜像构建时写入的版本号。Docker Hub 凭据来自 GitHub Actions secrets `DOCKERHUB_USERNAME` 和 `DOCKERHUB_TOKEN`；缺少凭据时 Docker Hub 发布会跳过。令牌不要写入仓库或聊天内容。
+发布新正式版时，在 `feature/copymanga-source-browser` 的已验证提交上创建并推送形如 `v0.1.2` 的 Git 标签。两个发布工作流随后构建版本号、版本线、`latest` 和 SHA 标签；预发布标签（如 `v0.2.0-rc.1`）不会更新 `latest`。普通分支提交只产生预览和 SHA 标签。WebUI 左侧菜单会显示镜像构建时写入的版本号。Docker Hub 凭据来自 GitHub Actions secrets `DOCKERHUB_USERNAME` 和 `DOCKERHUB_TOKEN`；缺少凭据时 Docker Hub 发布会跳过。令牌不要写入仓库或聊天内容。
 
-飞牛 NAS 的 Docker UI 不一定检测同名标签背后的新镜像。需要在镜像页重新拉取并重建原容器；如果使用公开镜像的 Compose 配置，则先 `docker compose pull` 再重建。仓库附带的 `docker-compose.yml` 仍用于本地构建。只重启容器不会更新代码。想固定在某一版本可填 `:v0.1.0`；想跟随同一版本线可填 `:v0.1`；想跟随每次正式发布可填 `:latest`。标签本身不会让 Docker 自动拉取或弹出更新提醒。
+飞牛 NAS 的 Docker UI 不一定检测同名标签背后的新镜像。需要在镜像页重新拉取并重建原容器；如果使用公开镜像的 Compose 配置，则先 `docker compose pull` 再重建。仓库附带的 `docker-compose.yml` 仍用于本地构建。只重启容器不会更新代码。想固定在某一版本可填 `:v0.1.2`；想跟随同一版本线可填 `:v0.1`；想跟随每次正式发布可填 `:latest`。标签本身不会让 Docker 自动拉取或弹出更新提醒。
 
 ### 使用webUI/docker
 

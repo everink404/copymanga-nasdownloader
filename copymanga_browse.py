@@ -14,6 +14,7 @@ from bs4 import BeautifulSoup
 from plugins.copymanga.headers import HEADERS
 from plugins.copymanga.login import loginhelper
 from utils import config
+from utils import copymanga_web
 from utils.request import RequestHandler
 
 
@@ -205,53 +206,21 @@ def browse(query='', rank='day', offset=0, limit=20, mode='rank',
 def detail(path_word):
     path_word = _identifier(path_word)
     try:
-        results = _fetch(f'/api/v3/comic2/{path_word}')
-    except HTTPException as error:
-        if error.status_code != 503 or '210' not in error.detail:
-            raise
-        # The official public page still exposes metadata when app APIs are restricted.
-        # Do not invent groups or allow subscriptions without a verified directory.
-        try:
-            soup = _web_page(f'/comic/{path_word}')
-            title = soup.select_one('.comicParticulars-title-right h6[title]')
-            cover = soup.select_one('.comicParticulars-left-img img')
-            if title is None:
-                raise ValueError('missing title')
-            status = ''
-            for row in soup.select('.comicParticulars-title-right li'):
-                if row.get_text(strip=True).startswith('狀態：'):
-                    status = row.get_text(strip=True).removeprefix('狀態：')
-            intro = soup.select_one('p.intro')
-            return {'path_word': path_word, 'name': title.get_text(strip=True),
-                    'cover': (cover.get('data-src') or cover.get('src') or '') if cover else '',
-                    'authors': [a.get_text(strip=True) for a in soup.select('.comicParticulars-title-right a[href^="/author/"]')],
-                    'themes': [a.get_text(strip=True).lstrip('#') for a in soup.select('.comicParticulars-left-theme-all a')],
-                    'status': status, 'brief': intro.get_text(strip=True) if intro else '',
-                    'last_chapter': '', 'groups': [], 'metadata_only': True,
-                    'warning': error.detail + ' 已显示官网公开资料；未取得分组与目录，暂不能加入订阅。'}
-        except (HTTPException, ValueError):
-            raise error
-    comic = _comic(results.get('comic'))
-    if comic is None:
-        raise HTTPException(502, "CopyManga 漫画详情格式错误")
-    comic['groups'] = _groups(results)
-    return comic
+        return copymanga_web.catalog(path_word)['comic']
+    except copymanga_web.DirectoryError as error:
+        raise HTTPException(502, str(error)) from None
 
 
 def chapters(path_word, group_word, offset=0, limit=100):
     path_word, group_word = _identifier(path_word), _identifier(group_word)
-    results = _fetch(f'/api/v3/comic/{path_word}/group/{group_word}/chapters', {
-        'limit': limit, 'offset': offset, 'platform': 3, 'in_mainland': 'false'})
-    items = results.get('list')
-    if not isinstance(items, list):
-        raise HTTPException(502, "CopyManga 章节目录格式错误")
-    normalized = []
-    for chapter in items:
-        if isinstance(chapter, dict) and chapter.get('uuid') and chapter.get('name'):
-            normalized.append({'uuid': chapter['uuid'], 'name': chapter['name'],
-                               'index': chapter.get('index'),
-                               'datetime_created': chapter.get('datetime_created')})
-    return {'items': normalized, 'total': results.get('total'), 'offset': offset, 'limit': limit}
+    if offset < 0 or limit < 1 or limit > 500:
+        raise HTTPException(400, '章节分页参数无效')
+    try:
+        items = copymanga_web.group_chapters(path_word, group_word)
+    except copymanga_web.DirectoryError as error:
+        raise HTTPException(502, str(error)) from None
+    return {'items': items[offset:offset + limit], 'total': len(items),
+            'offset': offset, 'limit': limit}
 
 
 def _all_chapters(path_word, group_word):

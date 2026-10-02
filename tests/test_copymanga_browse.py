@@ -69,18 +69,12 @@ class BrowseTests(unittest.TestCase):
             browse.browse('x', theme='aiqing')
         self.assertEqual(error.exception.status_code, 400)
 
-    def test_210_falls_back_to_public_metadata_but_cannot_subscribe(self):
-        page = BeautifulSoup('''<div class="comicParticulars-title-right"><h6 title="Public">Public</h6>
-          <a href="/author/a/comics">Author</a><li>狀態：連載中</li></div>
-          <div class="comicParticulars-left-img"><img data-src="cover.jpg"></div>
-          <p class="intro">Description</p>''', 'html.parser')
-        with patch.object(browse, '_fetch', side_effect=HTTPException(503, 'CopyManga 返回 210：站点说明')), \
-             patch.object(browse, '_web_page', return_value=page):
+    def test_website_directory_failure_preserves_metadata_and_blocks_subscription(self):
+        with patch.object(browse.copymanga_web, 'catalog', return_value={'comic': {
+            'name': 'Public', 'authors': ['Author'], 'metadata_only': True, 'groups': []}}):
             result = browse.detail('comic')
             self.assertEqual(result['name'], 'Public')
-            self.assertEqual(result['authors'], ['Author'])
             self.assertTrue(result['metadata_only'])
-            self.assertEqual(result['groups'], [])
             with tempfile.TemporaryDirectory() as directory:
                 path = str(Path(directory, 'updater.json'))
                 with self.assertRaises(HTTPException):
@@ -88,14 +82,14 @@ class BrowseTests(unittest.TestCase):
                 self.assertFalse(Path(path).exists())
 
     def test_detail_groups_and_chapter_pagination(self):
-        with patch.object(browse, '_fetch', side_effect=[
-            {'comic': {'path_word': 'comic', 'name': 'Comic'},
-             'groups': {'default': {'name': '默认'}, 'special': {'path_word': 'special', 'name': '番外'}}},
-            {'list': [{'uuid': 'one', 'name': '1', 'index': 1}], 'total': 501},
-        ]) as fetch:
+        with patch.object(browse.copymanga_web, 'catalog', return_value={'comic': {
+            'name': 'Comic', 'groups': [{'path_word': 'default'}, {'path_word': 'special'}]}}), \
+             patch.object(browse.copymanga_web, 'group_chapters', return_value=[
+                 {'uuid': str(i), 'name': str(i), 'index': i} for i in range(501)]):
             self.assertEqual([g['path_word'] for g in browse.detail('comic')['groups']], ['default', 'special'])
-            self.assertEqual(browse.chapters('comic', 'special', 500, 100)['total'], 501)
-            self.assertEqual(fetch.call_args.args[1]['offset'], 500)
+            page = browse.chapters('comic', 'special', 500, 100)
+            self.assertEqual(page['total'], 501)
+            self.assertEqual(page['items'][0]['uuid'], '500')
 
     def test_subscription_modes_duplicate_and_preserved_sites(self):
         comic = {'name': 'Comic', 'groups': [{'path_word': 'default'}, {'path_word': 'special'}]}
@@ -130,9 +124,9 @@ class BrowseTests(unittest.TestCase):
                 browse.subscribe(SubscriptionInput('from', 'b'), 'unused.json')
             self.assertEqual(error.exception.status_code, 409)
 
-    def test_failed_api_is_error_not_empty_chapters(self):
-        with patch.object(browse, '_handler') as handler:
-            handler.return_value.get.return_value = None
+    def test_failed_website_is_error_not_empty_chapters(self):
+        with patch.object(browse.copymanga_web, 'group_chapters',
+                          side_effect=browse.copymanga_web.DirectoryError('无法连接官网')):
             with self.assertRaises(HTTPException) as error:
                 browse.chapters('comic', 'default')
             self.assertEqual(error.exception.status_code, 502)

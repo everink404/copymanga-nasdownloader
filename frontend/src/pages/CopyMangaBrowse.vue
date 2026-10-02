@@ -65,7 +65,7 @@
     <div v-else>
       <v-btn variant="text" prepend-icon="mdi-arrow-left" class="mb-4" @click="returnToList">返回漫画列表</v-btn>
       <v-alert v-if="comic.warning" type="warning" class="mb-4">{{ comic.warning }}
-        <v-btn variant="text" :loading="detailLoading" @click="openComic(comic.path_word)">重试完整详情</v-btn>
+        <v-btn variant="text" :loading="detailLoading" @click="openComic(comic.path_word)">重新获取目录</v-btn>
       </v-alert>
       <v-alert v-if="detailError" type="error" class="mb-4">{{ detailError }} <v-btn variant="text" @click="openComic(comic.path_word)">重试</v-btn></v-alert>
       <v-row>

@@ -2,6 +2,7 @@ rich
 dotenv
 python-dotenv
 httpx
+cryptography>=42,<47
 natsort
 git+https://github.com/misaka10843/cbz.git
 beautifulsoup4

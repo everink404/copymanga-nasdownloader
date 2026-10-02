@@ -1,15 +1,11 @@
 import logging
 from typing import Dict, List, Any, Tuple
 
-from plugins.copymanga.headers import HEADERS
-from plugins.copymanga.login import loginhelper
-from utils import config
-from utils.request import RequestHandler
+from utils import copymanga_web
 from .base import BaseUpdater
 
 log = logging.getLogger(__name__)
 
-request = RequestHandler(headers=HEADERS, proxy=config.CM_PROXY, copymanga=True)
 
 
 class CopyMangaUpdater(BaseUpdater):
@@ -20,38 +16,14 @@ class CopyMangaUpdater(BaseUpdater):
     ]
 
     def get_chapters(self, record: Dict) -> List[Dict]:
-        if config.CM_USERNAME and config.CM_PASSWORD:
-            logging.info("获取到copymanga用户名和密码，将尝试登录而不是使用配置的Token")
-            HEADERS['authorization'] = (f"Bearer "
-                                        f"{loginhelper(username=config.CM_USERNAME, password=config.CM_PASSWORD, url=config.CM_API_URL)}")
-            logging.debug(HEADERS)
-
-        log.info(f"获取漫画：{record['path_word']}，类别：{record['group_word']}")
-        chapters = []
-        for offset in range(0, 10000, 500):
-            url = (f"/api/v3/comic/{record['path_word']}/group/{record['group_word']}/chapters"
-                   f"?limit=500&offset={offset}&platform=3&in_mainland=false")
-            data = request.get(url)
-            if data is None:
-                log.error(f"漫画章节列表请求失败：{record['path_word']}，offset={offset}")
-                return []
-            try:
-                results = data.json()['results']
-                page = results['list']
-                if not isinstance(page, list):
-                    raise ValueError("章节列表不是数组")
-            except (ValueError, KeyError, TypeError) as e:
-                log.error(f"漫画章节列表解析失败：{e}")
-                return []
-            chapters.extend(page)
-            total = results.get('total')
-            if len(page) < 500 or (isinstance(total, int) and offset + len(page) >= total):
-                return chapters
-        log.error(f"漫画章节数超出支持范围：{record['path_word']}")
-        return []
+        # Force a fresh complete directory for each scheduled check.
+        return copymanga_web.group_chapters(record['path_word'], record['group_word'], refresh=True)
 
     def find_subsequent_uuids(self, chapters: List[Dict], target_chapter: str) -> List[Tuple[str, str]]:
         sorted_chapters = sorted(chapters, key=lambda x: x['index'])
+        names = [chapter['name'] for chapter in sorted_chapters]
+        if len(set(names)) != len(names):
+            raise copymanga_web.DirectoryError('目录存在同名章节，无法安全定位完成记录。')
         if target_chapter:
             target_index = -1
             for i, chapter in enumerate(sorted_chapters):
@@ -59,7 +31,9 @@ class CopyMangaUpdater(BaseUpdater):
                     target_index = i
                     break
 
-            if target_index == -1 or target_index == len(sorted_chapters) - 1:
+            if target_index == -1:
+                raise copymanga_web.DirectoryError('目录中找不到最后完成的章节，未更改订阅记录。')
+            if target_index == len(sorted_chapters) - 1:
                 return []
             return [(chap['uuid'], chap['name']) for chap in sorted_chapters[target_index + 1:]]
 

@@ -172,23 +172,17 @@ class ChapterTests(unittest.TestCase):
                          httpx.Response(200, json={'results': None})):
             with patch.object(plugin.request, 'get', return_value=response):
                 self.assertIsNone(plugin.get_chapter('series', 'id'))
-            with patch.object(chapter_updater.request, 'get', return_value=response), \
-                 patch.object(config, 'CM_USERNAME', ''):
-                self.assertEqual(CopyMangaUpdater().get_chapters(dict(path_word='series', group_word='default')), [])
+            with patch.object(chapter_updater.copymanga_web, 'group_chapters',
+                              side_effect=chapter_updater.copymanga_web.DirectoryError('目录请求失败')):
+                with self.assertRaises(chapter_updater.copymanga_web.DirectoryError):
+                    CopyMangaUpdater().get_chapters(dict(path_word='series', group_word='default'))
 
-    def test_chapter_list_pages_and_fails_without_partial_download(self):
-        first = [{'uuid': str(i), 'name': str(i), 'index': i} for i in range(500)]
+    def test_updater_uses_shared_complete_directory(self):
+        chapters = [{'uuid': str(i), 'name': str(i), 'index': i} for i in range(501)]
         record = dict(path_word='series', group_word='default')
-        with patch.object(config, 'CM_USERNAME', ''), patch.object(chapter_updater.request, 'get', side_effect=[
-            httpx.Response(200, json={'results': {'list': first}}),
-            httpx.Response(200, json={'results': {'list': [{'uuid': '500', 'name': '500', 'index': 500}]}}),
-        ]) as get:
+        with patch.object(chapter_updater.copymanga_web, 'group_chapters', return_value=chapters) as get:
             self.assertEqual(len(CopyMangaUpdater().get_chapters(record)), 501)
-            self.assertIn('offset=500', get.call_args.args[0])
-        with patch.object(config, 'CM_USERNAME', ''), patch.object(chapter_updater.request, 'get', side_effect=[
-            httpx.Response(200, json={'results': {'list': first}}), None,
-        ]):
-            self.assertEqual(CopyMangaUpdater().get_chapters(record), [])
+            get.assert_called_once_with('series', 'default', refresh=True)
 
     def test_failed_image_preserves_directory_and_resumes(self):
         chapter = dict(contents=[{'url': 'https://cdn.example/1'}, {'url': 'https://cdn.example/2'}], words=[1, 2])
