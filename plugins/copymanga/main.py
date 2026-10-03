@@ -8,6 +8,7 @@ from plugins.copymanga.headers import HEADERS
 from plugins.copymanga.login import loginhelper
 from updater import updater
 from utils import config
+from utils import copymanga_web
 from utils.notify import notifier
 from utils.rename import rename_series
 from utils.request import RequestHandler
@@ -21,6 +22,12 @@ def get_chapter(path_word: str, uuid: str):
     """获取章节详情"""
     data = request.get(f"/api/v3/comic/{path_word}/chapter2/{uuid}")
     if data is None:
+        if request.last_status_code == 210:
+            log.warning('章节 API 返回 210, 尝试官网公开章节页: %s/%s', path_word, uuid)
+            try:
+                return copymanga_web.chapter_contents(path_word, uuid)
+            except copymanga_web.DirectoryError as error:
+                log.error('官网章节回退失败: %s', error)
         log.error(f"漫画章节请求失败：{path_word}/{uuid}")
         return None
     try:
@@ -33,12 +40,15 @@ def get_chapter(path_word: str, uuid: str):
         return None
 
 
-def download_chapter(task: Dict[str, Any], uuid: str, chapter_name: str):
+def download_chapter(task: Dict[str, Any], uuid: str, chapter_name: str, image_handler=None):
     """下载单个章节"""
     chapter = get_chapter(task['path_word'], uuid)
     if not chapter:
         log.error(f"无法获取章节 {chapter_name} (UUID: {uuid}) 的内容")
-        notifier.add_error("copymanga", f"{task['name']} - {chapter_name}", "获取章节内容失败")
+        reason = '获取章节内容失败'
+        if request.last_status_code == 210:
+            reason = 'API 返回 210, 官网也未取得完整图片列表; 未下载或更新完成记录。'
+        notifier.add_error("copymanga", f"{task['name']} - {chapter_name}", reason)
         return False
 
     contents = chapter.get('contents')
@@ -51,7 +61,9 @@ def download_chapter(task: Dict[str, Any], uuid: str, chapter_name: str):
     current_name = chapter_name
     log.info(f"已获取到 {task['name']} {current_name} 的内容，开始安排下载")
 
-    save_path = os.path.join(config.DOWNLOAD_PATH, task['name'], current_name)
+    # Web pages have their own order; never reuse partial API pages by filename.
+    directory_name = current_name + '.__website' if chapter.get('_source') == 'website' else current_name
+    save_path = os.path.join(config.DOWNLOAD_PATH, task['name'], directory_name)
     os.makedirs(save_path, exist_ok=True)
 
     # 下载所有图片
@@ -60,7 +72,11 @@ def download_chapter(task: Dict[str, Any], uuid: str, chapter_name: str):
         image_path = os.path.join(save_path, f"{chapter['words'][index]:04d}.jpg")
         full_url = url['url'].replace("c800x.jpg", "c1500x.jpg").replace("c800x.webp", "c1500x.webp")
 
-        if downloader(full_url, image_path):
+        options = {}
+        if image_handler is not None:
+            options = {'request_handler': image_handler, 'headers': {
+                'Referer': config.CM_WEB_URL.rstrip('/') + '/comic/' + task['path_word'] + '/chapter/' + uuid}}
+        if downloader(full_url, image_path, **options):
             log.info(f"已下载 {task['name']} {current_name} {chapter['words'][index]:04d}.jpg")
         else:
             log.error(f"下载失败: {task['name']} {current_name} {chapter['words'][index]:04d}.jpg")
@@ -95,28 +111,30 @@ def download_chapter(task: Dict[str, Any], uuid: str, chapter_name: str):
     return True
 
 
-def download_task(task: Dict[str, Any]):
+def download_task(task: Dict[str, Any], image_handler=None):
     """处理单个漫画任务的所有章节下载"""
     if not task.get('chapter_infos'):
         log.info(f"{task['name']} 没有待下载章节")
-        return
+        return True
 
     log.info(f"开始处理 {task['name']} 的 {len(task['chapter_infos'])} 个章节")
 
     for uuid, name in task['chapter_infos']:
         try:
-            success = download_chapter(task, uuid, name)
+            success = download_chapter(task, uuid, name, image_handler=image_handler)
             if not success:
                 log.error(f"章节下载失败: {task['name']} {name}, UUID: {uuid}")
                 # latest_chapter 是顺序游标，不能越过未完成的章节。
-                break
+                log.warning('%s 本次下载未完成, 保留进度供下次重试。', task['name'])
+                return False
         except Exception as e:
             log.error(f"章节处理异常: {e}")
             notifier.add_error("copymanga", f"{task['name']} - {name}", str(e))
-            break
+            return False
         time.sleep(3)
 
     log.info(f"{task['name']} 需要更新的下载已完成")
+    return True
 
 
 def download_batch(tasks: List[Dict[str, Any]]):
@@ -136,9 +154,13 @@ def download_batch(tasks: List[Dict[str, Any]]):
     headers['authorization'] = (token if token.startswith(('Token ', 'Bearer ')) else f'Token {token}') if token else ''
     previous_request = request
     request = RequestHandler(headers=headers, proxy=config.CM_PROXY, copymanga=True)
+    image_handler = None
     try:
+        # CDN requests share the current proxy, but must not receive the account token.
+        image_handler = RequestHandler(headers={'User-Agent': HEADERS['User-Agent']}, proxy=config.CM_PROXY)
         log.info(f"检测到 {len(tasks)} 个漫画有更新内容")
 
+        completed = 0
         for task in tasks:
             debug_uuids = "\n".join([f"  - {uuid} ({name})" for uuid, name in task.get('chapter_infos', [])])
 
@@ -159,10 +181,13 @@ def download_batch(tasks: List[Dict[str, Any]]):
             log.debug(debug)
 
             # 开始下载该漫画
-            download_task(task)
+            if download_task(task, image_handler=image_handler):
+                completed += 1
 
-        log.info("所有漫画下载任务已完成")
+        log.info('漫画下载处理结束: 完成 %s 部, 未完成 %s 部。', completed, len(tasks) - completed)
 
     finally:
+        if image_handler is not None:
+            image_handler.client.close()
         request.client.close()
         request = previous_request

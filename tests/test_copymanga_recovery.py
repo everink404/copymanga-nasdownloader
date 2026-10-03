@@ -167,6 +167,31 @@ class ChapterTests(unittest.TestCase):
             self.assertEqual(saved[0]['latest_chapter'], '')
             self.assertEqual(saved[1]['latest_chapter'], 'chapter')
 
+    def test_210_falls_back_to_public_website_but_other_failures_do_not(self):
+        chapter = {'contents': [{'url': 'https://cdn.example/one.jpg'}], 'words': [1]}
+        for status in (210, 429, None):
+            with patch.object(plugin.request, 'get', return_value=None), \
+                 patch.object(plugin.request, 'last_status_code', status), \
+                 patch.object(plugin.copymanga_web, 'chapter_contents', return_value=chapter) as fallback:
+                result = plugin.get_chapter('series', 'id')
+                if status == 210:
+                    self.assertEqual(result, chapter)
+                    fallback.assert_called_once_with('series', 'id')
+                else:
+                    self.assertIsNone(result)
+                    fallback.assert_not_called()
+
+    def test_210_and_empty_public_page_preserve_progress(self):
+        with patch.object(plugin.request, 'get', return_value=None), \
+             patch.object(plugin.request, 'last_status_code', 210), \
+             patch.object(plugin.copymanga_web, 'chapter_contents',
+                          side_effect=plugin.copymanga_web.DirectoryError('官网没有图片')), \
+             patch.object(plugin, 'postprocess') as pack, \
+             patch.object(plugin.updater, 'update_chapter_record') as write:
+            self.assertFalse(plugin.download_task(self.task))
+            pack.assert_not_called()
+            write.assert_not_called()
+
     def test_missing_and_malformed_responses(self):
         for response in (None, httpx.Response(200, text='bad json'),
                          httpx.Response(200, json={'results': None})):
@@ -233,12 +258,50 @@ class ChapterTests(unittest.TestCase):
              patch.object(plugin, 'download_task') as download:
             previous = plugin.request
             plugin.download_batch([dict(self.task, current_chapter='')])
-            self.assertEqual(handler.call_args.kwargs['headers']['authorization'], 'Token download-token')
-            self.assertEqual(handler.call_args.kwargs['proxy'], {'http': 'http://new-proxy:7890'})
-            handler.return_value.client.close.assert_called_once()
+            api_options = handler.call_args_list[0].kwargs
+            image_options = handler.call_args_list[1].kwargs
+            self.assertEqual(api_options['headers']['authorization'], 'Token download-token')
+            self.assertEqual(api_options['proxy'], {'http': 'http://new-proxy:7890'})
+            self.assertEqual(image_options['proxy'], api_options['proxy'])
+            self.assertNotIn('authorization', image_options['headers'])
+            self.assertEqual(handler.return_value.client.close.call_count, 2)
             self.assertIs(plugin.request, previous)
             download.assert_called_once()
             login.assert_called_once()
+
+    def test_copymanga_images_use_batch_handler_and_chapter_referer(self):
+        from unittest.mock import Mock
+        handler = Mock()
+        handler.get.return_value = httpx.Response(200, content=b'page')
+        chapter = dict(contents=[{'url': 'https://cdn.example/image.jpg'}], words=[1])
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(config, 'DOWNLOAD_PATH', directory), \
+             patch.object(config, 'USE_CM_CNAME', True), \
+             patch.object(plugin, 'get_chapter', return_value=chapter), \
+             patch.object(images.request, 'get') as direct, \
+             patch.object(plugin, 'postprocess'), \
+             patch.object(plugin.updater, 'update_chapter_record'):
+            self.assertTrue(plugin.download_chapter(self.task, 'a', 'one', image_handler=handler))
+            direct.assert_not_called()
+            handler.get.assert_called_once_with('https://cdn.example/image.jpg', headers={
+                'Referer': config.CM_WEB_URL.rstrip('/') + '/comic/series/chapter/a'})
+
+    def test_public_fallback_does_not_reuse_partial_api_images(self):
+        chapter = dict(contents=[{'url': 'https://cdn.example/website.jpg'}], words=[1], _source='website')
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(config, 'DOWNLOAD_PATH', directory), \
+             patch.object(config, 'USE_CM_CNAME', True), \
+             patch.object(plugin, 'get_chapter', return_value=chapter), \
+             patch.object(images.request, 'get', return_value=httpx.Response(200, content=b'website page')) as get, \
+             patch.object(plugin, 'postprocess'), \
+             patch.object(plugin.updater, 'update_chapter_record'):
+            old = Path(directory, 'series', 'one', '0001.jpg')
+            old.parent.mkdir(parents=True)
+            old.write_bytes(b'partial API page')
+            self.assertTrue(plugin.download_chapter(self.task, 'a', 'one'))
+            get.assert_called_once()
+            self.assertEqual(old.read_bytes(), b'partial API page')
+            self.assertEqual(Path(directory, 'series', 'one.__website', '0001.jpg').read_bytes(), b'website page')
 
     def test_download_login_failure_does_not_advance_records(self):
         with patch.object(config, 'CM_USERNAME', 'user'), \

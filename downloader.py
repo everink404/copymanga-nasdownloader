@@ -16,7 +16,7 @@ request = RequestHandler()
 log = logging.getLogger(__name__)
 
 
-def downloader(url: str, filename: str, overwrite: bool = False) -> bool:
+def downloader(url: str, filename: str, overwrite: bool = False, request_handler=None, headers=None) -> bool:
     # 检查文件是否已存在
     if os.path.exists(filename) and os.path.getsize(filename) > 0:
         if overwrite:
@@ -27,7 +27,8 @@ def downloader(url: str, filename: str, overwrite: bool = False) -> bool:
 
     try:
         # 发起HTTP请求
-        response = request.get(url)
+        handler = request_handler if request_handler is not None else request
+        response = handler.get(url, headers=headers) if headers else handler.get(url)
 
         if response is None:
             log.error(f"无法获取图片响应，URL: {url}")

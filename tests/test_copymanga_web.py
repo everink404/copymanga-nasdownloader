@@ -89,7 +89,75 @@ class WebsiteTests(unittest.TestCase):
             self.assertEqual(web._cache, {})
             with self.assertRaises(web.DirectoryError):
                 CopyMangaUpdater().get_chapters({'path_word': 'comic', 'group_word': 'default'})
-            self.assertEqual(len(calls), 4)
+            self.assertEqual(len(calls), 8)
+
+    def test_empty_directory_recovers_once_with_a_new_session(self):
+        factories = [self.handler(payload(0))[0], self.handler(payload(3))[0]]
+        created = []
+        # Capture each mock factory independently, then replay the two sessions.
+        for factory in factories:
+            with factory:
+                created.append(web.RequestHandler(headers={}, proxy={}, copymanga=True))
+        with patch.object(web, 'RequestHandler', side_effect=created):
+            result = web.catalog('comic')
+        self.assertNotIn('directory_error', result)
+        self.assertEqual(len(result['directories']['default']), 3)
+        self.assertTrue(web._cache)
+        self.assertTrue(all(handler.client.is_closed for handler in created))
+
+    def test_public_chapter_content_and_rejects_incomplete_pages(self):
+        pages = [{'url': 'https://cdn.example/one.jpg'}, {'url': 'https://cdn.example/two.jpg'}]
+        for count, values, success in [(2, pages, True), (3, pages, False), (0, [], False),
+                                       (1, [{'url': 'file:///private'}], False)]:
+            calls = []
+            html = (f'<span class="comicCount">{count}</span><script>'
+                    f"var cct = '0123456789abcdef'; var contentKey = '{encrypted(values)}';</script>")
+            def respond(request):
+                calls.append(request)
+                self.assertNotIn('authorization', request.headers)
+                if request.url.path == '/comic/comic':
+                    return httpx.Response(200, text=PAGE, headers={'set-cookie': 'session=public; Path=/'})
+                self.assertEqual(request.url.path, '/comic/comic/chapter/id-1')
+                self.assertEqual(request.headers['referer'], 'https://example.test/comic/comic')
+                self.assertIn('session=public', request.headers['cookie'])
+                return httpx.Response(200, text=html)
+            def factory(**kwargs):
+                handler = RequestHandler(**kwargs)
+                handler.client.close()
+                handler.client = httpx.Client(transport=httpx.MockTransport(respond))
+                return handler
+            with patch.object(web, 'RequestHandler', side_effect=factory):
+                if success:
+                    result = web.chapter_contents('comic', 'id-1')
+                    self.assertEqual(result, {'contents': pages, 'words': [1, 2], '_source': 'website'})
+                else:
+                    with self.assertRaises(web.DirectoryError):
+                        web.chapter_contents('comic', 'id-1')
+            self.assertEqual(len(calls), 2)
+
+    def test_empty_directory_retry_network_error_preserves_metadata(self):
+        factory, _ = self.handler(payload(0))
+        with factory:
+            empty = web._catalog_once('comic')
+        with patch.object(web, '_catalog_once', side_effect=[empty, web.DirectoryError('无法连接')]):
+            result = web.catalog('comic')
+        self.assertEqual(result['comic']['brief'], 'Description')
+        self.assertIn('无法连接', result['comic']['warning'])
+        self.assertFalse(web._cache)
+
+    def test_public_chapter_rejects_redirect_to_another_chapter(self):
+        def respond(request):
+            if request.url.path.endswith('id-1'):
+                return httpx.Response(302, headers={'location': '/comic/comic/chapter/other'})
+            return httpx.Response(200, text=PAGE)
+        def factory(**kwargs):
+            handler = RequestHandler(**kwargs)
+            handler.client.close()
+            handler.client = httpx.Client(transport=httpx.MockTransport(respond), follow_redirects=True)
+            return handler
+        with patch.object(web, 'RequestHandler', side_effect=factory):
+            with self.assertRaises(web.DirectoryError):
+                web.chapter_contents('comic', 'id-1')
 
     def test_rejects_truncated_wrong_comic_duplicate_ids_and_bad_cipher(self):
         for data in [dict(payload(), build={'path_word': 'other'}),
