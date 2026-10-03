@@ -4,6 +4,7 @@ import traceback
 from dispatcher import DownloadDispatcher
 from updater import updater
 from utils import config
+from utils.task_status import progress
 from utils.log import configure_logging
 from utils.notify import notifier
 
@@ -12,12 +13,12 @@ configure_logging()
 log = logging.getLogger(__name__)
 
 
-def main():
+def main(selection=None):
     config.reload()
     notifier.clear()
 
     try:
-        all_tasks = updater.process_updates()
+        all_tasks = updater.process_updates(selection)
 
         if not all_tasks:
             if notifier.errors:
@@ -36,6 +37,8 @@ def main():
         notifier.add_error("System", "Main Loop", str(e))
 
     finally:
+        if notifier.errors:
+            progress(error='；'.join(notifier.errors)[-1000:])
         notifier.flush()
 
 

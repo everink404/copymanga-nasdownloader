@@ -7,6 +7,7 @@ from threading import Lock
 import httpx
 
 from utils import config
+from utils.task_status import progress
 
 log = logging.getLogger(__name__)
 
@@ -131,6 +132,7 @@ class RequestHandler:
                     if attempt < self.retries:
                         delay = retry_after_seconds(response.headers.get('Retry-After'))
                         log.warning(f"[{method}] 请求限流 (429)，URL: {full_url}，等待 {delay} 秒后重试 ({attempt}/{self.retries})")
+                        progress(phase='等待重试', event=f'请求限流，等待 {delay} 秒后重试')
                         time.sleep(delay)
                         continue
                     break
@@ -146,6 +148,7 @@ class RequestHandler:
                 log.warning(f"[{method}] 请求异常: {e}，URL: {full_url}，尝试第 {attempt}/{self.retries} 次...")
 
             if attempt < self.retries:
+                progress(phase='等待重试', event=f'连接失败，{self.delay} 秒后重试')
                 time.sleep(self.delay)
 
         log.error(f"[{method}] 请求失败: 超过最大重试次数 ({self.retries})，URL: {full_url}")

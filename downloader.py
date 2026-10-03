@@ -1,6 +1,7 @@
 import logging
 import os
 import shutil
+import time
 from pathlib import Path
 
 from cbz.comic import ComicInfo
@@ -9,6 +10,7 @@ from cbz.page import PageInfo
 from natsort import natsorted
 
 from utils import config
+from utils.task_status import progress
 from utils.request import RequestHandler
 
 request = RequestHandler()
@@ -28,6 +30,7 @@ def downloader(url: str, filename: str, overwrite: bool = False, request_handler
     try:
         # 发起HTTP请求
         handler = request_handler if request_handler is not None else request
+        started = time.monotonic()
         response = handler.get(url, headers=headers) if headers else handler.get(url)
 
         if response is None:
@@ -50,6 +53,7 @@ def downloader(url: str, filename: str, overwrite: bool = False, request_handler
             f.write(response.content)
         os.replace(filename + '.part', filename)
 
+        progress(byte_delta=len(response.content), speed=len(response.content) / max(time.monotonic() - started, 0.001))
         log.info(f"图片下载成功: {filename}")
         return True
 
@@ -105,7 +109,10 @@ def postprocess(series_name: str, chapter_name: str, chapter_filename: str, chap
     # 确保目录存在
     base_dir.mkdir(parents=True, exist_ok=True)
     cbz_path = base_dir / f"{chapter_filename}.cbz"
-    cbz_path.write_bytes(comic.pack())
+    temporary = cbz_path.with_suffix('.cbz.part')
+    temporary.write_bytes(comic.pack())
+    os.replace(temporary, cbz_path)
     log.info(f"cbz打包成功: {cbz_path}")
     shutil.rmtree(file_path, ignore_errors=True)
     log.info(f"图片删除成功: {file_path}")
+    return str(cbz_path)

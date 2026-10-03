@@ -367,3 +367,7 @@ HTTP 210 会记录错误并使当前请求失败，进程继续运行。HTTP 429
 
 * `updater/updater.py` -> `SITE_MAPPING`
 * `dispatcher.py` -> `SITE_MODULES`
+
+### 订阅卡片与下载任务
+
+WebUI 仅展示拷贝漫画，可通过封面卡片管理订阅，单独运行、暂停、修改下载范围。下载任务页显示章节与图片进度、失败原因，并支持补下载和完成当前章节后停止。保留现有 Docker 端口与目录映射即可升级。详细行为见 [下载状态界面说明](docs/download-status-ui.md)。

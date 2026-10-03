@@ -48,12 +48,22 @@ app.add_middleware(
 scheduler = BackgroundScheduler()
 
 
+def run_subscription_job(job):
+    records = get_config().get('copymanga', [])
+    record = next((r for r in records if r.get('path_word') == job['path_word'] and r.get('group_word', 'default') == job['group_word']), None)
+    if not record or record.get('paused'):
+        raise ValueError('订阅已取消或暂停')
+    main.main((job['path_word'], job['group_word']))
+
+
+from utils.task_status import TaskManager
+task_manager = TaskManager(run_subscription_job)
+
+
 def run_downloader_task():
-    log.info("触发下载任务...")
-    try:
-        main.main()
-    except Exception as e:
-        log.error(f"任务执行出错: {e}")
+    for record in get_config().get('copymanga', []):
+        if not record.get('paused'):
+            task_manager.enqueue(record, 'schedule')
 
 
 def load_schedule_config():
@@ -89,6 +99,8 @@ def init_scheduler():
         except Exception as e:
             log.error(f"恢复 Cron 任务失败: {e}")
 
+    if cfg.get('type') == 'interval' and (cfg.get('days', 0) or cfg.get('hours', 0)):
+        scheduler.add_job(run_downloader_task, IntervalTrigger(days=cfg.get('days', 0), hours=cfg.get('hours', 0)), id='main_task')
     if not scheduler.running:
         scheduler.start()
 
@@ -117,6 +129,8 @@ def set_cron_schedule(data: Dict[str, str] = Body(...)):
 def get_dynamic_schema():
     schema = {}
     for site_key, site_class in SITE_MAPPING.items():
+        if site_key != "copymanga":
+            continue
         try:
             field_meta = site_class.get_field_meta()
             schema[site_key] = {
@@ -227,10 +241,96 @@ def save_system_settings(settings: Dict[str, Any]):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/run")
+@app.get('/api/tasks')
+def list_tasks():
+    return {'items': task_manager.snapshot()}
+
+
+@app.post('/api/tasks/{job_id}/stop')
+def stop_task(job_id: str):
+    try:
+        task_manager.stop(job_id)
+    except KeyError:
+        raise HTTPException(404, '任务不存在')
+    return {'status': 'success'}
+
+
+@app.post('/api/tasks/{job_id}/retry')
+def retry_task(job_id: str):
+    job = next((j for j in task_manager.snapshot() if j['id'] == job_id), None)
+    if not job:
+        raise HTTPException(404, '任务不存在')
+    if job['status'] not in ('failed', 'interrupted', 'stopped'):
+        raise HTTPException(409, '仅可重试失败、中断或停止的任务')
+    return queue_subscription(job['path_word'], job['group_word'])
+
+
+def queue_subscription(path_word, group_word):
+    record = next((r for r in get_config().get('copymanga', []) if r.get('path_word') == path_word and r.get('group_word', 'default') == group_word), None)
+    if not record:
+        raise HTTPException(404, '订阅不存在')
+    if record.get('paused'):
+        raise HTTPException(409, '请先恢复订阅')
+    return task_manager.enqueue(record)
+
+
+@app.post('/api/copymanga/subscriptions/{path_word}/{group_word}/run')
+def run_subscription(path_word: str, group_word: str):
+    return queue_subscription(path_word, group_word)
+
+
+def require_idle(path_word, group_word):
+    if any(j['path_word'] == path_word and j['group_word'] == group_word and j['status'] in ('waiting', 'running') for j in task_manager.snapshot()):
+        raise HTTPException(409, '请先停止该订阅的任务，再修改范围或取消订阅')
+
+
+@app.patch('/api/copymanga/subscriptions/{path_word}/{group_word}')
+def patch_subscription(path_word: str, group_word: str, data: Dict[str, Any]):
+    with task_manager.lock, copymanga_browse._write_lock:
+        current = get_config()
+        record = next((r for r in current.get('copymanga', []) if r.get('path_word') == path_word and r.get('group_word', 'default') == group_word), None)
+        if not record:
+            raise HTTPException(404, '订阅不存在')
+        if set(data) - {'paused', 'cover'} or ('paused' in data and not isinstance(data['paused'], bool)):
+            raise HTTPException(400, '配置字段无效')
+        if 'cover' in data and (not isinstance(data['cover'], str) or len(data['cover']) > 2048 or (data['cover'] and not data['cover'].startswith(('https://', 'http://')))):
+            raise HTTPException(400, '封面地址无效')
+        record.update(data)
+        if data.get('paused'):
+            for job in task_manager.snapshot():
+                if job['path_word'] == path_word and job['group_word'] == group_word and job['status'] == 'waiting':
+                    task_manager.stop(job['id'])
+        save_config(current)
+    return record
+
+
+@app.put('/api/copymanga/subscriptions/{path_word}/{group_word}/range')
+def edit_subscription_range(path_word: str, group_word: str, data: CopyMangaSubscription):
+    if data.path_word != path_word or data.group_word != group_word:
+        raise HTTPException(400, '订阅标识不一致')
+    with task_manager.lock:
+        require_idle(path_word, group_word)
+        return copymanga_browse.subscribe(data, UPDATER_JSON_PATH, replace=True)
+
+
+@app.delete('/api/copymanga/subscriptions/{path_word}/{group_word}')
+def delete_subscription(path_word: str, group_word: str):
+    with task_manager.lock, copymanga_browse._write_lock:
+        require_idle(path_word, group_word)
+        current = get_config()
+        records = current.get('copymanga', [])
+        remaining = [r for r in records if (r.get('path_word'), r.get('group_word', 'default')) != (path_word, group_word)]
+        if len(records) == len(remaining):
+            raise HTTPException(404, '订阅不存在')
+        current['copymanga'] = remaining
+        save_config(current)
+    return {'status': 'success'}
+
+
+@app.post('/api/run')
 def manual_run():
-    scheduler.add_job(run_downloader_task, trigger='date', run_date=datetime.now())
-    return {"status": "started", "message": "任务已在后台启动"}
+    jobs = [task_manager.enqueue(record) for record in get_config().get('copymanga', []) if not record.get('paused')]
+    return {'status': 'started', 'items': jobs, 'message': '订阅已加入队列'}
 
 
 @app.post("/api/schedule/interval")

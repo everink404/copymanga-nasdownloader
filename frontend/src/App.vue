@@ -17,6 +17,7 @@
             title="Copymanga-NasDownloader"
         ></v-list-item>
         <v-divider class="mb-2 opacity-20"></v-divider>
+        <v-list-item :title="taskSummary" prepend-icon="mdi-progress-download" @click="currentView = 'tasks'"></v-list-item>
 
         <v-list-item
             v-for="item in menuItems"
@@ -33,7 +34,7 @@
       <template v-slot:append>
         <v-list-item
             class="mb-2"
-            href="https://github.com/misaka10843/copymanga-nasdownloader"
+            href="https://github.com/everink404/copymanga-nasdownloader"
             prepend-icon="mdi-github"
             rounded="xl"
             target="_blank"
@@ -128,10 +129,9 @@ import {useDisplay} from 'vuetify'
 
 import Dashboard from './pages/Dashboard.vue'
 import CopyMangaBrowse from './pages/CopyMangaBrowse.vue'
-import Logs from './pages/Logs.vue'
-import Schedule from './pages/Schedule.vue'
-import Settings from './pages/Settings.vue'
-import JsonEditor from './pages/JsonEditor.vue'
+import Preferences from './pages/Preferences.vue'
+import Tasks from './pages/Tasks.vue'
+import {useTasks} from './taskState'
 
 const {mobile} = useDisplay()
 const appVersion = import.meta.env.VITE_APP_VERSION || 'dev'
@@ -153,10 +153,8 @@ const confirmState = reactive({
 const menuItems = [
   {title: '漫画源', value: 'browse', icon: 'mdi-bookshelf', component: CopyMangaBrowse},
   {title: '我的订阅', value: 'dashboard', icon: 'mdi-view-dashboard', component: Dashboard},
-  {title: '运行日志', value: 'logs', icon: 'mdi-text-box-outline', component: Logs},
-  {title: '定时任务', value: 'schedule', icon: 'mdi-clock', component: Schedule},
-  {title: '系统设置', value: 'settings', icon: 'mdi-cog', component: Settings},
-  {title: '高级编辑', value: 'json', icon: 'mdi-code-json', component: JsonEditor},
+  {title: '下载任务', value: 'tasks', icon: 'mdi-download', component: Tasks},
+  {title: '设置', value: 'settings', icon: 'mdi-cog', component: Preferences},
 ]
 
 const currentPageComponent = computed(() => {
@@ -173,6 +171,10 @@ const showMsg = (text, color = 'success') => {
   snackbar.value = {show: true, text, color}
 }
 provide('showMsg', showMsg)
+provide('openTasks', () => { currentView.value = 'tasks' })
+provide('openBrowse', () => { currentView.value = 'browse' })
+const {jobs} = useTasks()
+const taskSummary = computed(() => jobs.value.some(j => j.status === 'running') ? '下载中' : jobs.value.some(j => j.status === 'waiting') ? '等待执行' : jobs.value.some(j => j.status === 'failed') ? '有失败任务' : '空闲')
 provide('openSettings', () => { currentView.value = 'settings' })
 
 const openConfirm = (title, content) => {
@@ -197,7 +199,8 @@ const manualRun = async () => {
   running.value = true
   try {
     await axios.post('/api/run')
-    showMsg('后台任务已启动')
+    showMsg('订阅已加入下载队列')
+    currentView.value = 'tasks'
   } catch (e) {
     showMsg('启动失败', 'error')
   } finally {

@@ -8,6 +8,7 @@ from plugins.copymanga.headers import HEADERS
 from plugins.copymanga.login import loginhelper
 from updater import updater
 from utils import config
+from utils.task_status import progress, stopping
 from utils import copymanga_web
 from utils.notify import notifier
 from utils.rename import rename_series
@@ -42,6 +43,7 @@ def get_chapter(path_word: str, uuid: str):
 
 def download_chapter(task: Dict[str, Any], uuid: str, chapter_name: str, image_handler=None):
     """下载单个章节"""
+    progress(phase='获取图片列表', chapter=chapter_name, images_done=0, images_total=None, speed=None, event='开始章节: ' + chapter_name)
     chapter = get_chapter(task['path_word'], uuid)
     if not chapter:
         log.error(f"无法获取章节 {chapter_name} (UUID: {uuid}) 的内容")
@@ -49,6 +51,7 @@ def download_chapter(task: Dict[str, Any], uuid: str, chapter_name: str, image_h
         if request.last_status_code == 210:
             reason = 'API 返回 210, 官网也未取得完整图片列表; 未下载或更新完成记录。'
         notifier.add_error("copymanga", f"{task['name']} - {chapter_name}", reason)
+        progress(error=reason, event=reason)
         return False
 
     contents = chapter.get('contents')
@@ -56,6 +59,7 @@ def download_chapter(task: Dict[str, Any], uuid: str, chapter_name: str, image_h
     if not contents or not isinstance(contents, list) or not isinstance(words, list) or len(contents) != len(words):
         log.error(f"章节图片列表无效：{task['name']} - {chapter_name}")
         notifier.add_error("copymanga", f"{task['name']} - {chapter_name}", "章节图片列表无效")
+        progress(error='章节图片列表无效')
         return False
 
     current_name = chapter_name
@@ -67,7 +71,9 @@ def download_chapter(task: Dict[str, Any], uuid: str, chapter_name: str, image_h
     os.makedirs(save_path, exist_ok=True)
 
     # 下载所有图片
+    progress(phase='下载图片', images_total=len(contents))
     download_failed = False
+    images_done = 0
     for index, url in enumerate(contents):
         image_path = os.path.join(save_path, f"{chapter['words'][index]:04d}.jpg")
         full_url = url['url'].replace("c800x.jpg", "c1500x.jpg").replace("c800x.webp", "c1500x.webp")
@@ -77,6 +83,8 @@ def download_chapter(task: Dict[str, Any], uuid: str, chapter_name: str, image_h
             options = {'request_handler': image_handler, 'headers': {
                 'Referer': config.CM_WEB_URL.rstrip('/') + '/comic/' + task['path_word'] + '/chapter/' + uuid}}
         if downloader(full_url, image_path, **options):
+            images_done += 1
+            progress(phase='下载图片', images_done=images_done)
             log.info(f"已下载 {task['name']} {current_name} {chapter['words'][index]:04d}.jpg")
         else:
             log.error(f"下载失败: {task['name']} {current_name} {chapter['words'][index]:04d}.jpg")
@@ -85,6 +93,7 @@ def download_chapter(task: Dict[str, Any], uuid: str, chapter_name: str, image_h
     if download_failed:
         notifier.add_error("copymanga", f"{task['name']} - {current_name}", "部分图片下载失败")
         log.error(f"保留章节临时目录以便下次补下载：{save_path}")
+        progress(error='部分图片下载失败，临时文件已保留', event='图片下载失败，未打包或推进记录')
         return False
 
     log.info(f"{task['name']} {current_name} 下载完成，开始进行cbz打包")
@@ -96,16 +105,21 @@ def download_chapter(task: Dict[str, Any], uuid: str, chapter_name: str, image_h
     else:
         chapter_filename, chapter_num, is_special = current_name, 0, False
 
-    postprocess(
+    progress(phase='打包 CBZ', speed=None)
+    cbz_path = postprocess(
         task['name'], current_name,
         chapter_filename, chapter_num, save_path, is_special
     )
 
     # 更新下载记录
-    updater.update_chapter_record(
+    saved = updater.update_chapter_record(
         task['site'], task['path_word'], current_name, group_word=task.get('group_word', 'default')
     )
 
+    if saved is False:
+        progress(error='CBZ 已保存，但订阅完成记录写入失败')
+        return False
+    progress(cbz_path=str(cbz_path or ''), event='已保存 CBZ: ' + current_name)
     notifier.add_success("copymanga", task['name'], current_name)
     log.info(f"{task['name']} {current_name} cbz打包完成")
     return True
@@ -119,7 +133,9 @@ def download_task(task: Dict[str, Any], image_handler=None):
 
     log.info(f"开始处理 {task['name']} 的 {len(task['chapter_infos'])} 个章节")
 
-    for uuid, name in task['chapter_infos']:
+    for chapter_index, (uuid, name) in enumerate(task['chapter_infos']):
+        if stopping():
+            return False
         try:
             success = download_chapter(task, uuid, name, image_handler=image_handler)
             if not success:
@@ -130,6 +146,10 @@ def download_task(task: Dict[str, Any], image_handler=None):
         except Exception as e:
             log.error(f"章节处理异常: {e}")
             notifier.add_error("copymanga", f"{task['name']} - {name}", str(e))
+            progress(error='章节处理异常，请查看运行日志')
+            return False
+        progress(chapters_done=chapter_index + 1)
+        if stopping():
             return False
         time.sleep(3)
 
@@ -147,9 +167,11 @@ def download_batch(tasks: List[Dict[str, Any]]):
     headers = HEADERS.copy()
     token = config.CM_TOKEN
     if config.CM_USERNAME and config.CM_PASSWORD:
+        progress(phase='登录账号')
         token = loginhelper(username=config.CM_USERNAME, password=config.CM_PASSWORD, url=config.CM_API_URL)
         if not token:
             notifier.add_error('copymanga', '下载登录', '账号登录失败，未开始下载或更改完成记录')
+            progress(error='账号登录失败，未开始下载或更改完成记录')
             return
     headers['authorization'] = (token if token.startswith(('Token ', 'Bearer ')) else f'Token {token}') if token else ''
     previous_request = request

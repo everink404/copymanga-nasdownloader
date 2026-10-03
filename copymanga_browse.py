@@ -5,7 +5,7 @@ import ast
 import os
 import re
 import time
-from threading import Lock
+from threading import Lock, RLock
 from urllib.parse import urlparse
 
 from fastapi import HTTPException
@@ -18,7 +18,7 @@ from utils import copymanga_web
 from utils.request import RequestHandler
 
 
-_write_lock = Lock()
+_write_lock = RLock()
 _token_lock = Lock()
 _cached_login = (None, None, 0)
 _word = re.compile(r"^[A-Za-z0-9_-]{1,160}$")
@@ -242,7 +242,7 @@ def _all_chapters(path_word, group_word):
     return collected
 
 
-def subscribe(data, path):
+def subscribe(data, path, replace=False):
     path_word = _identifier(data.path_word)
     group_word = _identifier(data.group_word)
     comic = detail(path_word)
@@ -273,7 +273,7 @@ def subscribe(data, path):
         raise HTTPException(400, "保存名称无效")
     record = {'name': name, 'path_word': path_word, 'group_word': group_word,
               'latest_chapter': cursor, 'last_download_date': '',
-              'ep_pattern': '', 'vol_pattern': ''}
+              'ep_pattern': '', 'vol_pattern': '', 'cover': comic.get('cover', ''), 'download_mode': data.mode}
     with _write_lock:
         try:
             with open(path, encoding='utf-8') as stream:
@@ -285,10 +285,17 @@ def subscribe(data, path):
         if not isinstance(current, dict) or not isinstance(current.get('copymanga', []), list):
             raise HTTPException(500, "现有订阅配置格式错误")
         records = current.setdefault('copymanga', [])
-        if any(r.get('path_word') == path_word and r.get('group_word', 'default') == group_word
+        existing = next((r for r in records if r.get('path_word') == path_word and r.get('group_word', 'default') == group_word), None)
+        if replace and existing is None:
+            raise HTTPException(404, '订阅不存在')
+        if not replace and any(r.get('path_word') == path_word and r.get('group_word', 'default') == group_word
                for r in records if isinstance(r, dict)):
             raise HTTPException(409, "该漫画分组已经订阅")
-        records.append(record)
+        if replace:
+            existing.update({k: v for k, v in record.items() if k not in ('last_download_date', 'ep_pattern', 'vol_pattern')})
+            record = existing
+        else:
+            records.append(record)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         temporary = path + '.browse.tmp'
         try:

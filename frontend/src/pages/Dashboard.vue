@@ -1,281 +1,103 @@
 <template>
-  <div class="dashboard-page">
-    <div v-for="(siteSchema, siteKey) in schema" :key="siteKey" class="mb-10">
-      <div class="d-flex align-center mb-6">
-        <v-avatar class="mr-3" color="primary-lighten-5" size="40">
-          <span class="text-primary font-weight-bold text-uppercase">{{ siteKey.substring(0, 2) }}</span>
-        </v-avatar>
-        <div>
-          <h2 class="text-h6 font-weight-bold text-capitalize">{{ siteKey }}</h2>
-          <div class="text-caption text-medium-emphasis">已订阅 {{ configData[siteKey]?.length || 0 }} 个内容</div>
-        </div>
-        <v-spacer></v-spacer>
-        <v-btn
-            class="hidden-xs"
-            color="primary"
-            prepend-icon="mdi-plus"
-            rounded="pill"
-            variant="tonal"
-            @click="openAddDialog(siteKey)"
-        >
-          添加订阅
-        </v-btn>
-        <v-btn
-            class="hidden-sm-and-up"
-            color="primary"
-            icon="mdi-plus"
-            rounded="circle"
-            size="small"
-            variant="tonal"
-            @click="openAddDialog(siteKey)"
-        ></v-btn>
-      </div>
-
-      <v-row>
-        <v-col
-            v-for="(item, index) in configData[siteKey]"
-            :key="index"
-            cols="12" lg="4" md="6" xl="3"
-        >
-          <v-card border class="fill-height d-flex flex-column hover-card" elevation="0" flat>
-            <v-card-item>
-              <template v-slot:prepend>
-                <v-icon color="primary" icon="mdi-book-outline" size="large"></v-icon>
-              </template>
-              <v-card-title class="font-weight-bold text-body-1">
-                {{ item.name || '未命名漫画' }}
-              </v-card-title>
-              <v-card-subtitle class="text-caption font-monospace mt-1">
-                ID: {{ item[siteSchema.id_field] || 'N/A' }}
-              </v-card-subtitle>
-            </v-card-item>
-
-            <v-divider class="mx-4 opacity-10"></v-divider>
-
-            <v-card-text class="flex-grow-1 pt-4">
-              <v-row dense>
-                <v-col v-for="(meta, fieldName) in siteSchema.fields" :key="fieldName" :cols="meta.cols || 12">
-                  <div v-if="!meta.advanced || item[fieldName]" class="mb-2">
-                    <div class="text-caption text-medium-emphasis mb-1">{{ meta.label }}</div>
-                    <div class="text-body-2 text-high-emphasis text-truncate">
-                      {{ getDisplayValue(siteKey, fieldName, item[fieldName]) }}
-                    </div>
-                  </div>
-                </v-col>
-              </v-row>
-            </v-card-text>
-
-            <v-card-actions class="px-4 pb-4">
-              <v-btn
-                  color="primary"
-                  prepend-icon="mdi-pencil"
-                  size="small"
-                  variant="text"
-                  @click="openEditDialog(siteKey, index)"
-              >编辑
-              </v-btn>
-              <v-spacer></v-spacer>
-              <v-btn
-                  color="error"
-                  icon="mdi-delete-outline"
-                  size="small"
-                  variant="text"
-                  @click="removeItem(siteKey, index)"
-              ></v-btn>
-            </v-card-actions>
-          </v-card>
-        </v-col>
-
-        <v-col v-if="!configData[siteKey]?.length" cols="12">
-          <v-sheet border
-                   class="d-flex align-center justify-center py-12 bg-transparent border-dashed text-medium-emphasis"
-                   rounded="xl">
-            <div class="text-center">
-              <v-icon class="mb-3 opacity-50" size="48">mdi-inbox-outline</v-icon>
-              <div>暂无订阅数据</div>
-            </div>
-          </v-sheet>
-        </v-col>
-      </v-row>
+  <div>
+    <div class="d-flex ga-3 mb-4 flex-wrap">
+      <v-text-field v-model="query" label="搜索订阅漫画" prepend-inner-icon="mdi-magnify" hide-details style="min-width:220px"/>
+      <v-select v-model="filter" :items="filters" label="状态" hide-details style="max-width:220px"/>
+      <v-btn color="primary" @click="openBrowse">从漫画源添加</v-btn>
     </div>
-
-    <v-dialog v-model="dialog.show" max-width="600px" scrollable transition="dialog-bottom-transition">
-      <v-card border class="rounded-xl" elevation="0" flat>
-        <v-toolbar class="px-2 border-b" color="surface">
-          <v-toolbar-title class="text-h6 font-weight-bold pl-4">
-            {{ dialog.isEdit ? '编辑订阅' : '新增订阅' }}
-            <span class="text-caption text-medium-emphasis ml-2">{{ dialog.site }}</span>
-          </v-toolbar-title>
-          <v-btn icon="mdi-close" variant="text" @click="dialog.show = false"></v-btn>
-        </v-toolbar>
-
-        <v-card-text class="pt-6">
-          <v-row>
-            <template v-if="schema[dialog.site]">
-              <v-col
-                  v-for="(meta, fieldName) in schema[dialog.site].fields"
-                  :key="fieldName"
-                  :cols="meta.cols || 12"
-              >
-                <v-text-field
-                    v-if="!meta.type || meta.type === 'text'"
-                    v-model="dialog.data[fieldName]"
-                    :label="meta.advanced ? meta.label : `${meta.label} *`"
-                    :placeholder="meta.placeholder"
-                    :readonly="meta.type === 'readonly'"
-                    :rules="meta.advanced ? [] : [v => !!v || '此项必填']"
-                    color="primary"
-                    density="comfortable"
-                    variant="outlined"
-                >
-                  <template v-if="meta.advanced" v-slot:append-inner>
-                    <v-tooltip location="top" text="高级选项">
-                      <template v-slot:activator="{ props }">
-                        <v-icon color="grey" size="small" v-bind="props">mdi-cog-outline</v-icon>
-                      </template>
-                    </v-tooltip>
-                  </template>
-                </v-text-field>
-
-                <v-select
-                    v-else-if="meta.type === 'select'"
-                    v-model="dialog.data[fieldName]"
-                    :items="meta.options"
-                    :label="meta.advanced ? meta.label : `${meta.label} *`"
-                    item-title="label"
-                    item-value="value"
-                    color="primary"
-                    density="comfortable"
-                    variant="outlined"
-                ></v-select>
-              </v-col>
-            </template>
-          </v-row>
+    <v-alert v-if="error" type="error" class="mb-4">{{ error }}<v-btn @click="load">重试</v-btn></v-alert>
+    <v-alert v-if="taskError" type="warning" class="mb-4">{{ taskError }}</v-alert>
+    <v-progress-linear v-if="loading" indeterminate/>
+    <v-row>
+      <v-col v-for="item in visible" :key="key(item)" cols="6" sm="4" md="3" lg="2">
+        <v-card border rounded="lg" class="h-100">
+          <div role="button" tabindex="0" @click="open(item)" @keydown.enter="open(item)" style="cursor:pointer">
+            <v-img :src="item.cover || undefined" :aspect-ratio="0.7" cover class="bg-grey-lighten-3"><template #placeholder><div class="d-flex align-center justify-center h-100"><v-icon size="48">mdi-book-outline</v-icon></div></template><template #error><div class="d-flex align-center justify-center h-100">暂无封面</div></template></v-img>
+            <v-card-title class="text-body-1 font-weight-bold">{{ item.name }}</v-card-title>
+          </div>
+          <v-card-text class="pt-0">
+            <v-chip size="small" :color="state(item) === 'failed' ? 'error' : 'primary'">{{ item.paused ? '暂停订阅' : labels[state(item)] || '等待检查' }}</v-chip>
+            <div class="mt-2 text-caption">{{ item.downloaded_count == null ? '历史下载数量未统计' : `已记录下载 ${item.downloaded_count} 章` }}</div>
+            <div v-if="latest(item)?.chapters_total != null" class="text-caption">本次剩余 {{ Math.max(0, latest(item).chapters_total - latest(item).chapters_done) }} 章</div>
+            <div v-if="latest(item)?.status === 'running'" class="text-caption">{{ latest(item).phase }} · {{ latest(item).chapter }}</div>
+            <div v-else class="text-caption">进度：{{ item.latest_chapter || '从头开始' }}</div>
+          </v-card-text>
+          <v-card-actions class="flex-wrap"><v-btn size="small" :disabled="item.paused || busy || ['running','waiting'].includes(state(item))" @click="run(item)">立即检查下载</v-btn><v-btn size="small" @click="openTasks">查看任务</v-btn></v-card-actions>
+        </v-card>
+      </v-col>
+    </v-row>
+    <div v-if="!loading && !visible.length" class="text-center pa-12">{{ items.length ? '没有符合条件的订阅' : '暂无订阅，请从漫画源添加漫画' }}</div>
+    <v-dialog v-model="dialog" max-width="850" scrollable>
+      <v-card v-if="selected" rounded="xl">
+        <v-card-title class="d-flex">{{ selected.name }}<v-spacer/><v-btn icon="mdi-close" variant="text" @click="close"/></v-card-title>
+        <v-card-text>
+          <v-progress-linear v-if="detailLoading" indeterminate class="mb-3"/>
+          <v-alert v-if="detailError" type="warning" class="mb-3">{{ detailError }}<v-btn @click="open(selected)">重新获取</v-btn></v-alert>
+          <div class="d-flex ga-4 mb-4"><v-img v-if="comic?.cover" :src="comic.cover" width="110" max-width="110" cover/><div><p>{{ comic?.brief || '暂无简介' }}</p><p class="mt-3">订阅分组：{{ selected.group_word || 'default' }}</p><p>上次处理到：{{ selected.latest_chapter || '尚未推进' }}</p></div></div>
+          <v-alert v-if="comic?.directory_error" type="warning">{{ comic.directory_error }}</v-alert>
+          <v-select v-model="mode" :items="modes" label="修改下载范围" class="mt-4"/>
+          <v-alert v-if="mode" type="info" variant="tonal" class="mb-3">保存会重设下载起点；之前的文件仍保留。上次处理位置以前的章节可能是跳过的，不能当作已下载。</v-alert>
+          <v-select v-if="mode === 'from'" v-model="start" :items="chapters" item-title="name" item-value="uuid" label="从本页章节开始（可翻页选择）"/>
+          <v-btn v-if="mode" :disabled="busy || detailLoading || !chapters.length || (mode === 'from' && !start)" color="primary" @click="saveRange">保存下载范围</v-btn>
+          <h3 class="mt-5 mb-2">章节目录（{{ total }}）</h3>
+          <div v-for="(chapter, index) in chapters" :key="chapter.uuid" class="d-flex py-2 border-b"><span>{{ chapter.name }}</span><v-spacer/><span class="text-caption">{{ chapterState(index) }}</span></div>
+          <div class="d-flex mt-3"><v-btn :disabled="detailLoading || offset === 0" @click="loadChapters(offset - 100)">上一页</v-btn><v-spacer/><v-btn :disabled="detailLoading || offset + chapters.length >= total" @click="loadChapters(offset + 100)">下一页</v-btn></div>
         </v-card-text>
-
-        <v-divider></v-divider>
-        <v-card-actions class="pa-4 bg-surface">
-          <v-spacer></v-spacer>
-          <v-btn class="px-6" rounded="pill" variant="text" @click="dialog.show = false">取消</v-btn>
-          <v-btn class="px-6" color="primary" rounded="pill" variant="flat" @click="saveDialog">保存</v-btn>
-        </v-card-actions>
+        <v-card-actions class="flex-wrap"><v-btn :disabled="busy" @click="pause">{{ selected.paused ? '恢复自动检查' : '暂停自动检查' }}</v-btn><v-btn :disabled="busy || selected.paused" @click="run(selected)">立即检查下载</v-btn><v-spacer/><v-btn color="error" :disabled="busy" @click="remove">取消订阅</v-btn></v-card-actions>
       </v-card>
     </v-dialog>
   </div>
 </template>
-
 <script setup>
-import {inject, onMounted, ref} from 'vue'
+import {ref, computed, inject, onMounted, onBeforeUnmount} from 'vue'
 import axios from 'axios'
-
-const showMsg = inject('showMsg')
-const openConfirm = inject('openConfirm')
-
-const schema = ref({})
-const configData = ref({})
-
-const dialog = ref({
-  show: false,
-  isEdit: false,
-  site: '',
-  index: -1,
-  data: {}
-})
-
-const init = async () => {
-  try {
-    const [sRes, cRes] = await Promise.all([
-      axios.get('/api/schema'),
-      axios.get('/api/config')
-    ])
-    schema.value = sRes.data
-    const data = cRes.data || {}
-    for (const key in sRes.data) {
-      if (!data[key]) data[key] = []
-    }
-    configData.value = data
-  } catch (e) {
-    showMsg('Dashboard初始化失败: ' + (e.response?.data?.detail || e.message), 'error')
+import {useTasks, labels} from '../taskState'
+const showMsg = inject('showMsg'), openConfirm = inject('openConfirm'), openBrowse = inject('openBrowse'), openTasks = inject('openTasks')
+const {jobs, error: taskError} = useTasks()
+const items = ref([]), loading = ref(false), error = ref(''), query = ref(''), filter = ref('all'), busy = ref(false)
+const dialog = ref(false), selected = ref(null), comic = ref(null), chapters = ref([]), total = ref(0), offset = ref(0), detailLoading = ref(false), detailError = ref(''), mode = ref(null), start = ref(null)
+let generation = 0, disposed = false, timer
+const filters = [{title:'全部',value:'all'},{title:'下载中',value:'running'},{title:'等待中',value:'waiting'},{title:'失败或中断',value:'failed'},{title:'暂停订阅',value:'paused'}]
+const modes = [{title:'保持现有范围',value:null},{title:'从头下载全部章节',value:'all'},{title:'只下载以后更新',value:'future'},{title:'从指定章节开始',value:'from'}]
+const key = item => `${item.path_word}/${item.group_word || 'default'}`
+const url = item => `/api/copymanga/subscriptions/${encodeURIComponent(item.path_word)}/${encodeURIComponent(item.group_word || 'default')}`
+const latest = item => jobs.value.filter(j => key(j) === key(item)).at(-1)
+const state = item => latest(item)?.status
+const visible = computed(() => items.value.filter(item => item.name.toLowerCase().includes(query.value.toLowerCase()) && (filter.value === 'all' || (filter.value === 'paused' ? item.paused : filter.value === 'failed' ? ['failed','interrupted'].includes(state(item)) : state(item) === filter.value))))
+const err = e => e.response?.data?.detail || '请求失败，请检查网络或运行日志'
+async function load() { loading.value = true; try { items.value = (await axios.get('/api/config')).data.copymanga || []; error.value = ''; fillCovers() } catch(e) {error.value=err(e)} finally {loading.value=false} }
+async function run(item) { busy.value=true; try {await axios.post(url(item)+'/run'); showMsg('已加入下载队列'); openTasks()} catch(e){showMsg(err(e),'error')} finally{busy.value=false} }
+async function open(item) {
+  const g = ++generation
+  selected.value = item; dialog.value=true; comic.value=null; chapters.value=[]; total.value=0; mode.value=null; start.value=null; detailError.value=''; detailLoading.value=true
+  try { const {data} = await axios.get(`/api/copymanga/comics/${encodeURIComponent(item.path_word)}`); if(g!==generation)return; comic.value=data
+    if (data.cover && data.cover !== item.cover) { await axios.patch(url(item), {cover:data.cover}); item.cover=data.cover }
+    if(g!==generation)return
+    await loadChapters(0)
+  } catch(e){if(g===generation)detailError.value=err(e)} finally{if(g===generation)detailLoading.value=false}
+}
+async function loadChapters(page) {
+  const g=generation, item=selected.value; detailLoading.value=true; detailError.value=''
+  try {const {data}=await axios.get(`/api/copymanga/comics/${encodeURIComponent(item.path_word)}/groups/${encodeURIComponent(item.group_word || 'default')}/chapters`,{params:{offset:page,limit:100}}); if(g!==generation)return; chapters.value=data.items; total.value=data.total; offset.value=page}
+  catch(e){if(g===generation){chapters.value=[]; detailError.value=err(e)}} finally{if(g===generation)detailLoading.value=false}
+}
+function chapterState(index) {if ((selected.value.downloaded_chapters || []).includes(chapters.value[index].name)) return '已下载'; const cursor=chapters.value.findIndex(c=>c.name===selected.value.latest_chapter); return cursor<0 ? '下载情况未核实' : index<=cursor ? '之前已处理（可能跳过）' : '待检查下载'}
+async function pause(){busy.value=true; try{await axios.patch(url(selected.value),{paused:!selected.value.paused});selected.value.paused=!selected.value.paused;showMsg(selected.value.paused?'已暂停后续自动检查，当前任务继续':'已恢复自动检查')}catch(e){showMsg(err(e),'error')}finally{busy.value=false}}
+async function saveRange(){busy.value=true;try{const {data}=await axios.put(url(selected.value)+'/range',{path_word:selected.value.path_word,group_word:selected.value.group_word || 'default',name:selected.value.name,mode:mode.value,chapter_uuid:start.value || ''});Object.assign(selected.value,data.record);mode.value=null;showMsg('下载范围已更新')}catch(e){showMsg(err(e),'error')}finally{busy.value=false}}
+async function remove(){if(!await openConfirm('取消订阅','取消后保留已经下载的文件。确定取消这部漫画的订阅？'))return;busy.value=true;try{await axios.delete(url(selected.value));close();await load()}catch(e){showMsg(err(e),'error')}finally{busy.value=false}}
+function close(){dialog.value=false;++generation}
+async function fillCovers() {
+  for (const item of items.value.filter(i => !i.cover)) {
+    if(disposed)return
+    try { const {data}=await axios.get(`/api/copymanga/comics/${encodeURIComponent(item.path_word)}`,{timeout:30000}); if(disposed)return
+      if(data.cover) {await axios.patch(url(item),{cover:data.cover}); item.cover=data.cover}
+    } catch(e) { /* A missing cover must not block subscription management. */ }
   }
 }
-
-const openAddDialog = (siteKey) => {
-  const fields = schema.value[siteKey].fields
-  const newItem = {}
-  for (const f in fields) {
-    newItem[f] = fields[f].default || ''
-  }
-  dialog.value = {show: true, isEdit: false, site: siteKey, index: -1, data: newItem}
+async function refreshRecords() {
+  try { const {data}=await axios.get('/api/config', {timeout:10000}); if(!disposed) {items.value=data.copymanga || []; if(selected.value) {const item=items.value.find(i=>key(i)===key(selected.value)); if(item) Object.assign(selected.value,item)}} } catch(e) {if(!disposed)error.value=err(e)}
+  if(!disposed)timer=setTimeout(refreshRecords,5000)
 }
-
-const openEditDialog = (siteKey, index) => {
-  const item = JSON.parse(JSON.stringify(configData.value[siteKey][index]))
-  dialog.value = {show: true, isEdit: true, site: siteKey, index: index, data: item}
-}
-
-const removeItem = async (siteKey, idx) => {
-  const confirmed = await openConfirm('删除订阅', '确定要删除这个订阅吗？此操作无法撤销。')
-  if (!confirmed) return
-
-  configData.value[siteKey].splice(idx, 1)
-  await saveToServer()
-}
-
-const saveDialog = () => {
-  const {site, index, isEdit, data} = dialog.value
-  
-  const fields = schema.value[site].fields
-  for (const key in fields) {
-    if (!fields[key].advanced && !data[key]) {
-      showMsg('请填写必填项', 'error')
-      return
-    }
-  }
-
-  if (isEdit) configData.value[site][index] = data
-  else configData.value[site].push(data)
-  dialog.value.show = false
-  saveToServer()
-}
-
-const saveToServer = async () => {
-  try {
-    await axios.post('/api/config', configData.value)
-    showMsg('订阅配置已保存')
-  } catch (e) {
-    showMsg('保存失败', 'error')
-  }
-}
-
-const getDisplayValue = (siteKey, fieldName, value) => {
-  if (!value) return '-'
-  const field = schema.value[siteKey]?.fields[fieldName]
-  if (field?.type === 'select' && field.options) {
-    const option = field.options.find(opt => opt.value === value)
-    return option ? option.label : value
-  }
-  return value
-}
-
-onMounted(init)
+onMounted(()=>{load(); timer=setTimeout(refreshRecords,5000)})
+onBeforeUnmount(()=>{disposed=true;clearTimeout(timer);++generation})
 </script>
-
-<style scoped>
-.border-dashed {
-  border-style: dashed !important;
-}
-
-.hover-card {
-  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-}
-
-.hover-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 12px 30px -10px rgba(0, 0, 0, 0.15) !important;
-  border-color: rgba(var(--v-theme-primary), 0.3) !important;
-}
-
-.font-monospace {
-  font-family: 'Roboto Mono', monospace;
-}
-</style>
