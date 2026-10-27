@@ -1,0 +1,32 @@
+{
+  "package": "S1-20261018-r2",
+  "code_commit": "a5a8f3794b66c8d46b864eb8a77feaa2e79cbe4a",
+  "checks": "design-only",
+  "files": [
+    {
+      "file": "S1.md",
+      "sha256": "f6d52402e5045c1d04cc45d31efe3a113e9a7fc94eb4b7340d00c88f9b6d4083",
+      "bytes": 8620
+    },
+    {
+      "file": "SOURCE_CONTRACT.md",
+      "sha256": "cce861509e3e14340abd1b9e29809821d564927f61a4243ea57f00eb9a024bda",
+      "bytes": 17432
+    },
+    {
+      "file": "DATA_RECOVERY.md",
+      "sha256": "5dbe0b07d3168da3b2daf1ee7b8943d6d8f59feec7f84cc00ec8d35478db5f6d",
+      "bytes": 22771
+    },
+    {
+      "file": "ACCEPTANCE.md",
+      "sha256": "05306fed137cfa600ee56ab3339b8d94db700e8ba69c7ab3d0d6408596780c96",
+      "bytes": 10144
+    },
+    {
+      "file": "S1_EXAMPLES.json",
+      "sha256": "ab48a3b93a9a5e6090b9ab49128b5cab3fad9052f454b246846c7add468b7ec1",
+      "bytes": 9074
+    }
+  ]
+}

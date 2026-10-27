@@ -1,0 +1,18 @@
+services:
+  download-core-s2:
+    image: montequilla/copymanga-nasdownloader:s2-preview
+    container_name: cmnas-s2-test
+    ports:
+      - "18002:8000"
+    environment:
+      CMNAS_S2_FIXTURE: "1"
+    volumes:
+      - s2-data:/data
+      - s2-downloads:/downloads
+      - s2-cbz:/cbz
+    restart: unless-stopped
+
+volumes:
+  s2-data:
+  s2-downloads:
+  s2-cbz:

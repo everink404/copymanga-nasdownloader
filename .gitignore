@@ -179,3 +179,7 @@ cbz
 data
 system_config.json
 updater.json
+download_tasks.json
+web_config.json
+*.sqlite3
+*.sqlite3-journal

@@ -1,5 +1,7 @@
 # copymanga-nasdownloader
 
+> 下载核心重构的隔离测试版见 [S2 一页说明](docs/project/S2.md) 和 `compose.s2.yaml`。仅用于离线核心验证，镜像标签 `s2-preview`；现有 `latest` 仍为原正式版。
+
 ![social-media](./assets/social-media.png)
 
 <p align="center">
@@ -371,3 +373,11 @@ HTTP 210 会记录错误并使当前请求失败，进程继续运行。HTTP 429
 ### 订阅卡片与下载任务
 
 WebUI 仅展示拷贝漫画，可通过封面卡片管理订阅，单独运行、暂停、修改下载范围。下载任务页显示章节与图片进度、失败原因，并支持补下载和完成当前章节后停止。保留现有 Docker 端口与目录映射即可升级。详细行为见 [下载状态界面说明](docs/download-status-ui.md)。
+
+## 插件化下载器项目规划（S0）
+
+当前处于 S2 下载核心实施阶段。入口：[S0 项目文档](docs/project/S0.md)、[协作流程](docs/project/WORKFLOW.md)、[当前状态与对话名单](docs/project/STATUS.md)。此前 CopyManga 规划与 v0.1.7 说明保留为已有实现记录。
+
+S1 交付：[S1 技术契约](docs/project/S1.md)、[轻量验收](docs/project/ACCEPTANCE.md)。S0/S1 交文档；S2 起各阶段交镜像与一页说明。
+
+[S1 最终交付](docs/project/reports/C-S1-20261018-r3.md)：r2 契约已通过独立复核，可作 S2 设计基线。本轮产品实现及验证见 [S2 说明](docs/project/S2.md)。

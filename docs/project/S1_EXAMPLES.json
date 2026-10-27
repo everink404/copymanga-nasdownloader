@@ -1,0 +1,284 @@
+{
+  "schema": "S1 design examples, not runtime results",
+  "version": "S1-20261018-r2",
+  "source": {
+    "source_id": "fixture_offline",
+    "source_api_major": 1,
+    "plugin_version": "0.1.0",
+    "identity_scheme": "fixture-v1",
+    "hidden": true,
+    "capabilities": {
+      "browse": true,
+      "search": true,
+      "groups": true,
+      "manifest_refresh": true,
+      "account_required": false,
+      "filters": false,
+      "anonymous": true
+    },
+    "display_name": "离线验收测试源（不展示）",
+    "settings_schema": [],
+    "endpoints": {
+      "fixture_cdn": {
+        "roles": [
+          "image"
+        ],
+        "hosts": [
+          "images.example.invalid"
+        ]
+      }
+    },
+    "rate_limits": {
+      "image_requests_per_minute": 60,
+      "api_requests_per_minute": 12
+    }
+  },
+  "identity_examples": [
+    {
+      "source_id": "fixture_offline",
+      "comic_id": "42",
+      "group_id": "default",
+      "chapter_id": "1001",
+      "title": "第1话",
+      "comic_key": "894a62205c5707f812abd3d198c7e3183286a5a5f9d2250bcb8fe739301eea04",
+      "group_key": "c5527838a1552b792e23c634f6fc05a72260846b9a74732a84aa9cc7386e2b2e",
+      "chapter_key": "62250efb86d1f4784d04f1def66c34261ad3404b27028d3866aa13dd88af6366"
+    },
+    {
+      "source_id": "fixture_offline",
+      "comic_id": "42",
+      "group_id": "special",
+      "chapter_id": "1001",
+      "title": "第1话",
+      "chapter_key": "3a7c053a24a1a2633ad91e4696521bafa27af76df51625fa30ce01a09a429902"
+    }
+  ],
+  "catalog": {
+    "snapshot_id": "demo-snapshot-1",
+    "consistency": "double_scan",
+    "observed_at": "2026-10-18T00:00:00Z",
+    "ordered_chapters": [
+      {
+        "chapter_key": "62250efb86d1f4784d04f1def66c34261ad3404b27028d3866aa13dd88af6366",
+        "chapter_id": "1001",
+        "ordinal": 1,
+        "title": "第1话",
+        "source_id": "fixture_offline",
+        "comic_id": "42",
+        "group_id": "default",
+        "source_revision": null
+      },
+      {
+        "chapter_key": "43e80eeac058b4097434d6411bf986501d2d4b0520c95a654b87330d57fde049",
+        "chapter_id": "1002",
+        "ordinal": 2,
+        "title": "第2话",
+        "source_id": "fixture_offline",
+        "comic_id": "42",
+        "group_id": "default",
+        "source_revision": null
+      }
+    ],
+    "total_hint": 2,
+    "complete": true,
+    "identity": {
+      "comic_id": "42",
+      "group_id": "default",
+      "source_id": "fixture_offline"
+    },
+    "fingerprint": "fbd0f32c56834911a6afced437bcd8b689b1d3e21d00cbbdb4861fd26a719166"
+  },
+  "future_subscription": {
+    "subscription_id": "demo-subscription-1",
+    "source_id": "fixture_offline",
+    "comic_id": "42",
+    "group_id": "default",
+    "mode": "future",
+    "baseline_snapshot": "demo-snapshot-1",
+    "policy_revision": 1,
+    "exclusions": [
+      {
+        "chapter_key": "62250efb86d1f4784d04f1def66c34261ad3404b27028d3866aa13dd88af6366",
+        "reason": "baseline_skipped"
+      },
+      {
+        "chapter_key": "43e80eeac058b4097434d6411bf986501d2d4b0520c95a654b87330d57fde049",
+        "reason": "baseline_skipped"
+      }
+    ],
+    "verified_download_count": 0
+  },
+  "manifest": {
+    "source_id": "fixture_offline",
+    "comic_id": "42",
+    "group_id": "default",
+    "chapter_id": "1001",
+    "complete": true,
+    "manifest_version": "a6a289a6c8c215af0a9770eaafc8a3cf18de7291c5797100200ccb40feefd44c",
+    "identity_scheme": "fixture-v1",
+    "proof_kind": "none",
+    "expected_count": 2,
+    "entries": [
+      {
+        "ordinal": 1,
+        "page_key": "page-1",
+        "revision": null,
+        "expected_sha256": null,
+        "transform_version": "none",
+        "request_plan": {
+          "method": "GET",
+          "url": "https://images.example.invalid/page-1.png",
+          "request_role": "image",
+          "endpoint_ref": "fixture_cdn",
+          "auth_scope_ref": null
+        }
+      },
+      {
+        "ordinal": 2,
+        "page_key": "page-2",
+        "revision": null,
+        "expected_sha256": null,
+        "transform_version": "none",
+        "request_plan": {
+          "method": "GET",
+          "url": "https://images.example.invalid/page-2.png",
+          "request_role": "image",
+          "endpoint_ref": "fixture_cdn",
+          "auth_scope_ref": null
+        }
+      }
+    ]
+  },
+  "recovery_example": {
+    "artifact_stage": "prepared",
+    "chapter_fact": "not_complete",
+    "final_file": "exists",
+    "expected_action": "verify full identity, stored sha256, ZIP and manifest, then transactionally commit once",
+    "expected_network_requests": 0,
+    "note": "No actual CBZ or image was produced by these examples"
+  },
+  "error_examples": [
+    {
+      "code": "CATALOG_INCOMPLETE",
+      "message": "目录第2页获取失败，未创建下载计划",
+      "retryable": true,
+      "retry_at": null
+    },
+    {
+      "code": "SITE_RESTRICTED",
+      "message": "源站限制当前请求，保留任务失败状态",
+      "retryable": false,
+      "retry_at": null
+    }
+  ],
+  "negative_examples": [
+    {
+      "case": "same chapter id in different groups",
+      "expected": "distinct chapter_key"
+    },
+    {
+      "case": "future baseline",
+      "expected": "zero verified downloads"
+    },
+    {
+      "case": "HTTP 200 with HTML",
+      "expected": "INVALID_IMAGE"
+    },
+    {
+      "case": "refreshed manifest without stable proof",
+      "expected": "new generation, preserve old files"
+    },
+    {
+      "case": "CBZ exists without ownership proof",
+      "expected": "ARTIFACT_CONFLICT"
+    }
+  ],
+  "canonicalization_vectors": [
+    {
+      "kind": "identity",
+      "canonical_json": "[\"fixture_offline\",\"42\",\"default\",\"章\\\"一\"]",
+      "expected_sha256": "230364e5f2b9cd1873af48ebfef64b4e96d10dc89e21ff8069f4b177f373457b",
+      "note": "Unicode and quote, no normalization"
+    },
+    {
+      "kind": "manifest_version",
+      "canonical_json": "[[\"页\\\"一\",null,null,\"none\"]]",
+      "expected_sha256": "3fe54f12045623184a51490ad0b36bb6857de2a5c82131ccbe5037ea4b5d7a9a",
+      "note": "missing revision/hash=>null; missing transform=>none"
+    },
+    {
+      "kind": "content_version",
+      "canonical_json": "[[\"页\\\"一\",\"0ed371c16004fea5504895748c5ba015f321f1893e1a9224132aa683110c9f00\",\"image/png\",\"none\"]]",
+      "expected_sha256": "9c50437d26ee046ff8a0cd21e391f3ae23dd9fc55ac953e2c6912b4fef35e25c",
+      "note": "digest placeholder, no actual image bytes were downloaded"
+    }
+  ],
+  "repair_flow": {
+    "before": {
+      "pending_publication_intents": 0,
+      "chapter_fact": "corrupt",
+      "local_reconciled": true,
+      "status": "recovery_required",
+      "reason": "artifact_repair_required"
+    },
+    "request": "POST /api/v1/tasks/recovery-demo/retry",
+    "after": {
+      "old_status": "stopped",
+      "repair": true,
+      "old_outcome": "handed_off_to_repair",
+      "successor_job_id": "repair-demo-1",
+      "new_status": "waiting"
+    },
+    "repeat_click": {
+      "successor_job_id": "repair-demo-1",
+      "new_jobs_created": 0
+    },
+    "unreconciled_intent": {
+      "network_requests": 0,
+      "code": "LOCAL_RECONCILIATION_REQUIRED",
+      "status_code": 409
+    },
+    "after_success": {
+      "verified_chapter_count": 1,
+      "old_bad_artifact_preserved": true,
+      "chapter_fact": "complete"
+    }
+  },
+  "recovery_restart_cases": [
+    {
+      "proof_kind": "none",
+      "checkpoint": "one page",
+      "action": "isolate generation, no old-page reuse"
+    },
+    {
+      "proof_kind": "none",
+      "checkpoint": "all pages, no ZIP",
+      "action": "isolate generation, no repack"
+    },
+    {
+      "proof_kind": "none",
+      "checkpoint": "complete ZIP, no persistent prepared intent",
+      "action": "isolate ZIP, no claim"
+    },
+    {
+      "proof_kind": "none",
+      "checkpoint": "prepared intent and verified complete ZIP",
+      "action": "local publish/commit, no network"
+    },
+    {
+      "proof_kind": "content_hash",
+      "checkpoint": "partial pages, restart, fresh matching manifest and local receipts",
+      "action": "verified old-page reuse allowed"
+    }
+  ],
+  "artifact_allocation_examples": {
+    "old_relative_path": "chapter--key--version--aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.cbz",
+    "verified_chapter_count_after_repair": 1,
+    "content_version": "9c50437d26ee046ff8a0cd21e391f3ae23dd9fc55ac953e2c6912b4fef35e25c",
+    "repair_relative_path": "chapter--key--version--bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.cbz",
+    "chapter_key": "62250efb86d1f4784d04f1def66c34261ad3404b27028d3866aa13dd88af6366",
+    "old_artifact_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "repair_artifact_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "valid_known_duplicate_action": "verify and reuse before packing; no new artifact"
+  }
+}

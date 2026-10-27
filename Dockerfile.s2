@@ -1,0 +1,10 @@
+FROM python:3.12-slim
+ARG APP_VERSION=s2-preview
+ARG APP_REVISION=unknown
+ENV PYTHONUNBUFFERED=1 APP_VERSION=$APP_VERSION APP_REVISION=$APP_REVISION
+WORKDIR /app
+COPY requirements-s2.txt ./
+RUN pip install --no-cache-dir -r requirements-s2.txt
+COPY download_core ./download_core
+EXPOSE 8000
+CMD ["uvicorn", "download_core.api:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
