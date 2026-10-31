@@ -271,14 +271,14 @@ class CopySession(Session):
         comic_id=identifier(comic_id)
         if comic_id not in self.cache:
             try:
-                data=self.auth_fetch('/api/v3/comic/'+comic_id)
+                data=self.auth_fetch('/api/v3/comic2/'+comic_id)
                 comic=self.comic(data.get('comic',data)); raw=data.get('groups')
                 if not isinstance(raw,(dict,list)) or not raw: raise CoreError('CATALOG_INCOMPLETE','API 未提供分组')
                 entries=raw.items() if isinstance(raw,dict) else [(g.get('path_word'),g) for g in raw]
                 comic['groups']=[dict(group_id=identifier(g.get('path_word') or k),name=g.get('name') or k) for k,g in entries]
                 self.cache[comic_id]=comic
             except CoreError as error:
-                if error.code not in ('NETWORK','SITE_RESTRICTED','CATALOG_INCOMPLETE'): raise
+                if error.code not in ('NETWORK','HTTP_ERROR','SITE_RESTRICTED','CATALOG_INCOMPLETE'): raise
                 comic=self.web_comic(comic_id)
                 comic['notice']='API 受限，已尝试官网公开资料；'+comic.get('notice','')
                 self.cache[comic_id]=comic

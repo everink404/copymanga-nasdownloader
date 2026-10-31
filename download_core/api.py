@@ -1,4 +1,5 @@
 import os
+import json
 import sqlite3
 import threading
 import time
@@ -72,7 +73,25 @@ def create_app(data=None, downloads=None, cbz=None, fixture=None):
             for adapter in adapters:
                 saved=store.get('source_private',adapter.source_id)
                 if saved:
-                    adapter.configure(saved['config']); adapter.generation=saved['generation']
+                    empty=[k for k in ('password','token','proxy','username') if saved['config'].get(k)=='']
+                    adapter.configure(dict(saved['config'],clear_secrets=empty)); adapter.generation=saved['generation']
+            proxy_file=os.getenv('CMNAS_IMPORT_PROXY_FILE')
+            if proxy_file and not store.get('settings_import','legacy_proxy'):
+                # Explicit one-time import. Only cm_proxy is selected; no legacy
+                # account, password, token or download records enter this store.
+                try:
+                    raw=Path(proxy_file).read_bytes()
+                    if len(raw)>1024*1024: raise ValueError()
+                    proxy=json.loads(raw).get('cm_proxy','')
+                    if isinstance(proxy,dict): proxy=proxy.get('https') or proxy.get('http') or ''
+                    if not isinstance(proxy,str) or not proxy: raise ValueError()
+                except (OSError,ValueError,AttributeError):
+                    raise CoreError('CONFIG_INVALID','显式指定的旧代理配置无法读取或未配置代理') from None
+                with store.transaction():
+                    for adapter in adapters:
+                        adapter.configure({'proxy':proxy})
+                        store.put('source_private',adapter.source_id,dict(config=adapter.config,generation=adapter.generation))
+                    store.put('settings_import','legacy_proxy',dict(imported_at=time.time(),fields=['proxy']))
             engine = Engine(store, Registry(([FixtureSource()] if fixture else [])+adapters), downloads, cbz)
         except BaseException:
             store.close(); raise

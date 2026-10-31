@@ -3,6 +3,7 @@ import json
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from urllib.parse import urlparse
 import httpx
@@ -66,6 +67,21 @@ class SourceTests(unittest.TestCase):
         self.assertFalse(source.config['password']);self.assertFalse(source.config['token'])
         for values in (dict(api_rate=-1),dict(api_url='http://api.example.org'),dict(unknown='value'),dict(password=123)):
             with self.assertRaises(CoreError): source.configure(values)
+
+    def test_explicit_proxy_only_import_does_not_copy_account_or_reappear_after_clear(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); legacy=root/'legacy.json'
+            legacy.write_text(json.dumps(dict(cm_proxy='http://proxy-user:proxy-pass@127.0.0.1:7890',cm_username='DO_NOT_COPY',cm_password='DO_NOT_COPY')))
+            with patch.dict('os.environ',{'CMNAS_IMPORT_PROXY_FILE':str(legacy)}):
+                with TestClient(create_app(root/'data',root/'downloads',root/'cbz',fixture=False)) as client:
+                    core=client.app.state.engine
+                    self.assertEqual(core.registry.get('copymanga').config['username'],'')
+                    self.assertEqual(core.registry.get('copymanga').config['password'],'')
+                    self.assertTrue(core.registry.get('hipmh').config['proxy'])
+                    self.assertNotIn('proxy-pass',client.get('/api/v1/sources').text)
+                    client.put('/api/v1/sources/hipmh/settings',json={'values':{'clear_secrets':['proxy']}}).raise_for_status()
+                with TestClient(create_app(root/'data',root/'downloads',root/'cbz',fixture=False)) as client:
+                    self.assertEqual(client.app.state.engine.registry.get('hipmh').config['proxy'],'')
 
     def test_api_auth_never_follows_to_image_host_even_after_yield(self):
         captured=[]

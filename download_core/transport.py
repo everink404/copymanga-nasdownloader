@@ -89,7 +89,7 @@ class Transport:
                     if response.status_code == 401:
                         raise CoreError('AUTH_REQUIRED', '账号登录已失效，请重新配置或登录')
                     if response.status_code != 200:
-                        raise CoreError('HTTP_ERROR', f'图片请求失败（HTTP {response.status_code}）')
+                        raise CoreError('HTTP_ERROR', f'源请求失败（HTTP {response.status_code}）')
                     chunks, count = [], 0
                     for chunk in response.iter_bytes():
                         count += len(chunk)
@@ -99,7 +99,7 @@ class Transport:
                     budget.redirect_url = None
                     return b''.join(chunks)
             except httpx.RequestError:
-                raise CoreError('NETWORK', '图片连接失败', retry_at=time.time() + (3 if budget.used == 1 else 10)) from None
+                raise CoreError('NETWORK', '源连接失败，请检查网络与代理', retry_at=time.time() + (3 if budget.used == 1 else 10)) from None
         raise CoreError('PROTOCOL_ERROR', '重定向次数过多')
 
     def close(self):
