@@ -27,7 +27,7 @@ class Transport:
 
     def __init__(self, client=None, proxy=None, api_rate=12, image_rate=60, scope=None, auth_hosts=()):
         self.client = client or httpx.Client(proxy=proxy or None, timeout=20, follow_redirects=False, trust_env=False)
-        self.rates = {'api': api_rate, 'image': image_rate}
+        self.rates = {'api': api_rate, 'image': image_rate, 'cover':120}
         self.scope = scope
         self.auth_hosts = set(auth_hosts)
         self.requests = 0

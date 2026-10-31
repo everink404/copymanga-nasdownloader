@@ -25,7 +25,7 @@ class SourceTests(unittest.TestCase):
     def respond(self,request):
         self.calls.append(request)
         path=request.url.path
-        if path.endswith('.png'): return httpx.Response(200,content=self.png)
+        if path.endswith(('.png','.webp')): return httpx.Response(200,content=self.png)
         if path.startswith('/chapter/'):
             return httpx.Response(200,text='<div id="chapcontent" data-api-hid="ch1" data-api-base-url="https://hipapi1.s3file.top" data-chapter-img-base-line1="https://hip-tx-1.s3imgs.top"></div>')
         data={
@@ -124,6 +124,11 @@ class SourceTests(unittest.TestCase):
                 source.open_session=lambda config=None,transport=None: HipSession(source,dict(source.config),self.transport(source))
                 self.assertIn('我的订阅',client.get('/').text)
                 self.assertEqual([s['source_id'] for s in client.get('/api/v1/sources').json()],['hipmh','copymanga'])
+                client.get('/api/v1/browse?source_id=hipmh').raise_for_status()
+                before=len(self.calls)
+                self.assertEqual(client.get('/api/v1/covers/hipmh/demo').content,self.png)
+                self.assertEqual(client.get('/api/v1/covers/hipmh/demo').content,self.png)
+                self.assertEqual(len(self.calls),before+1)
                 p=client.post('/api/v1/subscriptions/preview',json=dict(source_id='hipmh',comic_id='demo')).json()
                 item=client.post('/api/v1/subscriptions',json=dict(preview_id=p['id'])).json()
                 self.assertEqual(item['title'],'示例漫画')

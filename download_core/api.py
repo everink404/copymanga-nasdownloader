@@ -6,10 +6,11 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 from .engine import Engine
-from .files import safe_path, verify_archive
+from .files import safe_path, verify_archive, validate_image
+from .transport import Budget
 from .fixture import FixtureSource, Registry
 from .migration import Migration
 from .models import CoreError
@@ -152,8 +153,14 @@ def create_app(data=None, downloads=None, cbz=None, fixture=None):
     @app.get('/api/v1/browse')
     def browse(source_id: str = 'hipmh', q: str = '',page: int=1,sort: str='updated',status: str='',theme: str=''):
         if not 1<=page<=10000: raise CoreError('CONFIG_INVALID','页码无效')
-        session = engine().registry.get(source_id).open_session({})
-        try: return session.browse(q) if source_id=='fixture_offline' else session.browse(q,page,sort,status,theme)
+        source=engine().registry.get(source_id);session=source.open_session({})
+        try:
+            result=session.browse(q) if source_id=='fixture_offline' else session.browse(q,page,sort,status,theme)
+            if source_id!='fixture_offline':
+                for comic in result['items']:
+                    comic['source_id']=source_id;source.comic_cache[comic['comic_id']]=comic
+                while len(source.comic_cache)>512:source.comic_cache.pop(next(iter(source.comic_cache)))
+            return result
         finally: session.close()
 
     @app.get('/api/v1/comics/{source_id}/{comic_id}')
@@ -161,8 +168,42 @@ def create_app(data=None, downloads=None, cbz=None, fixture=None):
         session=engine().registry.get(source_id).open_session({})
         try:
             comic=session.get_comic(comic_id)
-            return dict(comic,groups=session.list_groups(comic_id))
+            source=engine().registry.get(source_id)
+            if hasattr(source,'comic_cache'):source.comic_cache[comic_id]=comic
+            return dict(comic,source_id=source_id,groups=session.list_groups(comic_id))
         finally: session.close()
+
+    @app.get('/api/v1/covers/{source_id}/{comic_id}')
+    def cover_image(source_id: str,comic_id: str):
+        source=engine().registry.get(source_id)
+        if not hasattr(source,'cover_cache'):raise CoreError('NOT_FOUND','没有封面')
+        with source.cover_lock:
+            cached=source.cover_cache.get(comic_id)
+            if cached and cached[0]>time.time():
+                source.cover_cache.move_to_end(comic_id)
+                return Response(cached[1],media_type=cached[2],headers={'Cache-Control':'private, max-age=300'})
+            session=source.open_session({})
+            try:
+                comic=source.comic_cache.get(comic_id) or session.get_comic(comic_id)
+                if not comic.get('cover'):raise CoreError('NOT_FOUND','源没有提供封面')
+                url=session.image_url(comic['cover'],source.config.get('cover_url',source.config['web_url']))
+                budget=Budget()
+                while True:
+                    try:
+                        content=session.transport.get(url,budget,role='cover',allowed_hosts=session.image_hosts,headers=session.image_headers)
+                        break
+                    except CoreError as error:
+                        if error.code=='RATE_LIMIT' and error.retry_at and 0<error.retry_at-time.time()<.6:
+                            time.sleep(max(0,error.retry_at-time.time()));continue
+                        raise
+                image=validate_image(content)
+                previous=source.cover_cache.pop(comic_id,None)
+                if previous:source.cover_bytes-=len(previous[1])
+                source.cover_cache[comic_id]=(time.time()+3600,content,image['mime']);source.cover_bytes+=len(content)
+                while source.cover_bytes>20*1024*1024:
+                    _,old=source.cover_cache.popitem(last=False);source.cover_bytes-=len(old[1])
+                return Response(content,media_type=image['mime'],headers={'Cache-Control':'private, max-age=300'})
+            finally:session.close()
 
     @app.get('/api/v1/chapter-page')
     def chapter_page(source_id: str,comic_id: str,group_id: str,cursor: str | None=None):

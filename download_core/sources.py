@@ -8,6 +8,7 @@ import re
 import secrets
 import time
 import threading
+from collections import OrderedDict
 from urllib.parse import urlencode, urljoin, urlparse
 from bs4 import BeautifulSoup
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -68,6 +69,7 @@ class SiteSource:
         self.identity_scheme=source_id+'-v1'
         self.config=copy.deepcopy(defaults); self.generation=1
         self.token_cache=None; self.auth_lock=threading.RLock()
+        self.comic_cache={}; self.cover_cache=OrderedDict(); self.cover_bytes=0; self.cover_lock=threading.RLock()
 
     def configure(self, values):
         unknown=set(values)-set(self.defaults)-{'clear_secrets'}
@@ -98,6 +100,7 @@ class SiteSource:
             if type(candidate[field]) is not int or not 0<=candidate[field]<=600: raise CoreError('CONFIG_INVALID','限流需为 0 到 600 的整数，0 为关闭')
         if candidate.get('image_line','line1') not in ('line1','line2'): raise CoreError('CONFIG_INVALID','图片线路无效')
         self.config=candidate; self.generation+=1; self.token_cache=None
+        self.comic_cache.clear();self.cover_cache.clear();self.cover_bytes=0
 
     def public_config(self):
         return {**{k:v for k,v in self.config.items() if k not in ('password','token','proxy')},
