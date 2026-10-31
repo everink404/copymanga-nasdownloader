@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import threading
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, Request
@@ -12,6 +13,7 @@ from .fixture import FixtureSource, Registry
 from .migration import Migration
 from .models import CoreError
 from .store import Store
+from .sources import real_sources
 
 
 class PreviewInput(BaseModel):
@@ -33,6 +35,20 @@ class ImportInput(BaseModel):
     legacy_writer_stopped_ack: bool = False
 
 
+class SettingsInput(BaseModel):
+    values: dict
+
+
+class PolicyInput(BaseModel):
+    preview_id: str
+
+
+class SubscriptionState(BaseModel):
+    paused: bool | None = None
+    cancelled: bool | None = None
+    interval_hours: int | None = Field(default=None,ge=1,le=8760)
+
+
 def create_app(data=None, downloads=None, cbz=None, fixture=None):
     data = Path(data or os.getenv('CMNAS_DATA_PATH', '/data'))
     downloads = Path(downloads or os.getenv('CMNAS_DOWNLOAD_PATH', '/downloads'))
@@ -51,13 +67,19 @@ def create_app(data=None, downloads=None, cbz=None, fixture=None):
 
     def activate(app):
         store = Store(data / 'core-v1')
-        try: engine = Engine(store, Registry([FixtureSource()] if fixture else []), downloads, cbz)
+        try:
+            adapters=real_sources()
+            for adapter in adapters:
+                saved=store.get('source_private',adapter.source_id)
+                if saved:
+                    adapter.configure(saved['config']); adapter.generation=saved['generation']
+            engine = Engine(store, Registry(([FixtureSource()] if fixture else [])+adapters), downloads, cbz)
         except BaseException:
             store.close(); raise
         app.state.store, app.state.engine = store, engine
         engine.start()
 
-    app = FastAPI(title='漫画下载核心 S2', lifespan=lifespan)
+    app = FastAPI(title='漫画下载器', lifespan=lifespan)
 
     def engine():
         if app.state.engine is None:
@@ -74,6 +96,12 @@ def create_app(data=None, downloads=None, cbz=None, fixture=None):
     async def storage_error(request, error):
         return JSONResponse(dict(error='STORAGE_ERROR', message='数据库读写失败，未重建空数据库'), status_code=503)
 
+    @app.exception_handler(ValueError)
+    @app.exception_handler(KeyError)
+    @app.exception_handler(TypeError)
+    async def protocol_error(request,error):
+        return JSONResponse(dict(error='PROTOCOL_ERROR',message='参数或源站数据格式无效，未按空结果处理'),status_code=400)
+
     @app.get('/health')
     def health():
         return dict(status='ok', version=os.getenv('APP_VERSION', 's2-dev'), revision=os.getenv('APP_REVISION', 'local'),
@@ -81,16 +109,48 @@ def create_app(data=None, downloads=None, cbz=None, fixture=None):
 
     @app.get('/', response_class=HTMLResponse)
     def index():
-        return (Path(__file__).with_name('console.html')).read_text(encoding='utf-8')
+        return (Path(__file__).with_name('console.html' if fixture else 'app.html')).read_text(encoding='utf-8')
 
     @app.get('/api/v1/sources')
     def sources():
         return [s.descriptor() for s in engine().registry.sources.values()]
 
+    @app.put('/api/v1/sources/{source_id}/settings')
+    def settings(source_id: str,body: SettingsInput):
+        core=engine(); source=core.registry.get(source_id)
+        if not hasattr(source,'configure'): raise CoreError('CONFIG_INVALID','测试源不需要配置')
+        with core.guard:
+            if any(j['source_id']==source_id and j['status'] in ('waiting','running','retry_wait') for j in core.store.jobs()):
+                raise CoreError('CONFLICT','先停止该源的活动任务，再修改配置')
+            previous=dict(source.config); generation=source.generation
+            try:
+                source.configure(body.values)
+                core.store.put('source_private',source_id,dict(config=source.config,generation=source.generation))
+            except BaseException:
+                source.config=previous; source.generation=generation; raise
+        return source.public_config()
+
     @app.get('/api/v1/browse')
-    def browse(source_id: str = 'fixture_offline', q: str = ''):
+    def browse(source_id: str = 'hipmh', q: str = '',page: int=1,sort: str='updated',status: str='',theme: str=''):
+        if not 1<=page<=10000: raise CoreError('CONFIG_INVALID','页码无效')
         session = engine().registry.get(source_id).open_session({})
-        try: return session.browse(q)
+        try: return session.browse(q) if source_id=='fixture_offline' else session.browse(q,page,sort,status,theme)
+        finally: session.close()
+
+    @app.get('/api/v1/comics/{source_id}/{comic_id}')
+    def comic_detail(source_id: str,comic_id: str):
+        session=engine().registry.get(source_id).open_session({})
+        try:
+            comic=session.get_comic(comic_id)
+            return dict(comic,groups=session.list_groups(comic_id))
+        finally: session.close()
+
+    @app.get('/api/v1/chapter-page')
+    def chapter_page(source_id: str,comic_id: str,group_id: str,cursor: str | None=None):
+        session=engine().registry.get(source_id).open_session({})
+        try:
+            result=session.list_chapters(comic_id,group_id,cursor)
+            return dict(result,items=[c.data() for c in result['items']])
         finally: session.close()
 
     @app.get('/api/v1/catalog')
@@ -109,7 +169,43 @@ def create_app(data=None, downloads=None, cbz=None, fixture=None):
 
     @app.get('/api/v1/subscriptions')
     def subscriptions():
-        return [{k: s.get(k) for k in ('id', 'title', 'source_id', 'comic_id', 'group_id', 'mode', 'paused', 'cancelled')} for s in engine().store.subscriptions()]
+        core=engine()
+        return [dict({k:s.get(k) for k in ('id','title','cover','source_id','comic_id','group_id','mode','paused','cancelled','interval_hours','next_check_at')},
+                     verified_chapters=sum(1 for a in core.store.all('artifact') if a['stage']=='committed' and a['identity'][:3]==[s['source_id'],s['comic_id'],s['group_id']]
+                                           and (core.store.completed(a['chapter_key']) or {}).get('id')==a['id'])) for s in core.store.subscriptions()]
+
+    @app.patch('/api/v1/subscriptions/{item_id}')
+    def subscription_state(item_id: str,body: SubscriptionState):
+        core=engine()
+        with core.guard:
+            item=core.store.subscription(item_id)
+            if not item: raise CoreError('NOT_FOUND','订阅不存在')
+            item.update(body.model_dump(exclude_none=True))
+            item['next_check_at']=time.time()+item.get('interval_hours',120)*3600
+            core.store.save_subscription(item)
+            if item.get('paused') or item.get('cancelled'):
+                for job in core.store.jobs():
+                    if job['subscription_id']==item_id and job['status'] in ('waiting','running','retry_wait','blocked'): core.stop(job['id'])
+        return dict(id=item_id,paused=item.get('paused'),cancelled=item.get('cancelled'),interval_hours=item.get('interval_hours'))
+
+    @app.put('/api/v1/subscriptions/{item_id}/policy')
+    def policy(item_id: str,body: PolicyInput):
+        core=engine()
+        with core.guard:
+            item=core.store.subscription(item_id); preview=core.store.get('preview',body.preview_id)
+            if not item or not preview: raise CoreError('NOT_FOUND','订阅或预览不存在')
+            if any(j['subscription_id']==item_id and j['status'] in ('waiting','running','retry_wait','blocked','recovery_required') for j in core.store.jobs()):
+                raise CoreError('CONFLICT','存在活动或待恢复任务，先安全停止后再修改范围')
+            if preview['expires']<time.time() or any(preview[k]!=item[k] for k in ('source_id','comic_id','group_id')):
+                raise CoreError('RANGE_REVIEW_REQUIRED','预览已失效或不是同一漫画分组')
+            if preview.get('config_generation',1)!=getattr(core.registry.get(item['source_id']),'generation',1):
+                raise CoreError('RANGE_REVIEW_REQUIRED','源配置已变化，请重新预览')
+            _,fingerprint=core.catalog(item['source_id'],item['comic_id'],item['group_id'])
+            if fingerprint!=preview['fingerprint']: raise CoreError('CATALOG_CHANGED','目录已变化，请重新预览')
+            for field in ('mode','anchor','before_anchor','after_anchor','chapter_keys'): item[field]=preview[field]
+            item['baseline']=preview['chapter_keys'] if preview['mode']=='future' else []
+            core.store.save_subscription(item)
+        return dict(id=item_id,mode=item['mode'])
 
     @app.post('/api/v1/subscriptions/{item_id}/run')
     def run(item_id: str):

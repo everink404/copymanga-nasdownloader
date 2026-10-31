@@ -1,0 +1,15 @@
+services:
+  manga-downloader-s3:
+    image: montequilla/copymanga-nasdownloader:s3-preview
+    container_name: cmnas-s3-test
+    ports:
+      - "18003:8000"
+    volumes:
+      - s3-data:/data
+      - s3-downloads:/downloads
+      - s3-cbz:/cbz
+    restart: unless-stopped
+volumes:
+  s3-data:
+  s3-downloads:
+  s3-cbz:

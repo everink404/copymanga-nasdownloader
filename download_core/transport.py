@@ -25,21 +25,28 @@ class Transport:
     shared_due = {}
     shared_cooldown = {}
 
-    def __init__(self, client=None, proxy=None, api_rate=12, image_rate=60, scope=None):
+    def __init__(self, client=None, proxy=None, api_rate=12, image_rate=60, scope=None, auth_hosts=()):
         self.client = client or httpx.Client(proxy=proxy or None, timeout=20, follow_redirects=False, trust_env=False)
         self.rates = {'api': api_rate, 'image': image_rate}
         self.scope = scope
+        self.auth_hosts = set(auth_hosts)
         self.requests = 0
 
     def get(self, url, budget, role='image', allowed_hosts=(), headers=None):
+        return self.request(url, budget, role, allowed_hosts, headers)
+
+    def request(self, url, budget, role='api', allowed_hosts=(), headers=None, method='GET', data=None):
         initial = urlparse(url)
         if initial.scheme != 'https' or initial.hostname not in allowed_hosts or initial.username or initial.password:
             raise CoreError('PROTOCOL_ERROR', '请求地址不在源声明的范围内')
         request_headers = dict(headers or {})
-        if any(k.lower() in ('authorization', 'cookie', 'proxy-authorization') for k in request_headers):
-            raise CoreError('PROTOCOL_ERROR', '图片请求禁止账号凭据')
+        sensitive = ('authorization', 'cookie', 'proxy-authorization')
+        if any(k.lower() in sensitive for k in request_headers) and (role != 'api' or initial.hostname not in self.auth_hosts):
+            raise CoreError('PROTOCOL_ERROR', '请求禁止向此主机发送账号凭据')
         scope = self.scope or initial.hostname
         url = budget.redirect_url or url
+        if urlparse(url).hostname!=initial.hostname:
+            request_headers={k:v for k,v in request_headers.items() if k.lower() not in sensitive}
         for redirect in range(6):
             with self.shared_lock:
                 now = time.time()
@@ -51,12 +58,19 @@ class Transport:
                 self.shared_due[(scope, role)] = now + (60 / rate if rate else 0)
             self.requests += 1
             try:
-                with self.client.stream('GET', url, headers=request_headers, timeout=45 if role == 'image' else 20) as response:
+                # Authentication is explicit and host-scoped; never replay an implicit
+                # server cookie jar onto a CDN or a later request role.
+                self.client.cookies.clear()
+                with self.client.stream(method, url, headers=request_headers, data=data, timeout=45 if role == 'image' else 20) as response:
                     if response.status_code in (301, 302, 303, 307, 308):
                         target = str(response.url.join(response.headers.get('location', '')))
                         parsed = urlparse(target)
                         if parsed.scheme != 'https' or parsed.hostname not in allowed_hosts or parsed.username or parsed.password or redirect == 5:
                             raise CoreError('PROTOCOL_ERROR', '拒绝不安全的重定向')
+                        if method != 'GET':
+                            raise CoreError('PROTOCOL_ERROR', '登录请求不跟随重定向')
+                        if parsed.hostname != urlparse(url).hostname:
+                            request_headers = {k:v for k,v in request_headers.items() if k.lower() not in sensitive}
                         url = target; budget.redirect_url = target
                         continue
                     if response.status_code == 429:
@@ -71,7 +85,9 @@ class Transport:
                     if response.status_code >= 500:
                         raise CoreError('UPSTREAM_5XX', '上游暂时不可用', retry_at=time.time() + (3 if budget.used == 1 else 10))
                     if response.status_code == 210:
-                        raise CoreError('SITE_RESTRICTED', '源站限制了当前请求')
+                        raise CoreError('SITE_RESTRICTED', 'CopyManga 返回 210：站点限制了当前请求，请检查账号或网络后重试')
+                    if response.status_code == 401:
+                        raise CoreError('AUTH_REQUIRED', '账号登录已失效，请重新配置或登录')
                     if response.status_code != 200:
                         raise CoreError('HTTP_ERROR', f'图片请求失败（HTTP {response.status_code}）')
                     chunks, count = [], 0

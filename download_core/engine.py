@@ -40,6 +40,11 @@ class Engine:
         try: return collect_catalog(session, comic_id, group_id)
         finally: session.close()
 
+    def comic(self, source_id, comic_id):
+        session=self.registry.get(source_id).open_session({})
+        try: return session.get_comic(comic_id)
+        finally: session.close()
+
     def preview(self, source_id, comic_id, group_id='default', mode='all', anchor=None):
         if mode not in ('all', 'future', 'from'):
             raise CoreError('PROTOCOL_ERROR', '下载范围无效')
@@ -49,7 +54,10 @@ class Engine:
         keys = [c.key for c in chapters]
         if mode == 'from' and anchor not in keys:
             raise CoreError('RANGE_REVIEW_REQUIRED', '起始章节不存在')
+        comic=self.comic(source_id,comic_id)
         preview = dict(id=uid(), source_id=source_id, comic_id=comic_id, group_id=group_id, mode=mode,
+                       title=comic.get('title') or comic_id, cover=comic.get('cover',''),
+                       config_generation=getattr(self.registry.get(source_id),'generation',1),
                        anchor=anchor, chapter_keys=keys, fingerprint=fingerprint, expires=time.time()+600,
                        before_anchor=keys[:keys.index(anchor)] if mode == 'from' else [],
                        after_anchor=keys[keys.index(anchor):] if mode == 'from' else [])
@@ -60,6 +68,8 @@ class Engine:
         preview = self.store.get('preview', token)
         if not preview or preview['expires'] < time.time():
             raise CoreError('RANGE_REVIEW_REQUIRED', '范围预览过期，请重新预览')
+        if preview.get('config_generation',1)!=getattr(self.registry.get(preview['source_id']),'generation',1):
+            raise CoreError('RANGE_REVIEW_REQUIRED','源配置已变化，请重新预览')
         chapters, fingerprint = self.catalog(preview['source_id'], preview['comic_id'], preview['group_id'])
         if fingerprint != preview['fingerprint']:
             raise CoreError('CATALOG_CHANGED', '目录已变化，请重新预览')
@@ -68,8 +78,9 @@ class Engine:
             if any(s['identity'] == identity for s in self.store.subscriptions()):
                 raise CoreError('CONFLICT', '这个分组已订阅')
             source = self.registry.get(preview['source_id'])
-            item = dict(preview, id=uid(), identity=identity, title='离线下载示例' if source.source_id == 'fixture_offline' else preview['comic_id'],
+            item = dict(preview, id=uid(), identity=identity,
                         paused=False, cancelled=False, identity_scheme=source.identity_scheme,
+                        interval_hours=120,next_check_at=time.time()+120*3600,
                         options=options or {}, baseline=preview['chapter_keys'] if preview['mode'] == 'future' else [])
             self.store.save_subscription(item)
         return item
@@ -205,7 +216,8 @@ class Engine:
             if content is None:
                 budget = current['budgets'].setdefault(page.ordinal, Budget())
                 try:
-                    content = session.transport.get(page.url, budget, allowed_hosts=('fixture.invalid',) if item['source_id'] == 'fixture_offline' else session.image_hosts)
+                    content = session.transport.get(page.url, budget, allowed_hosts=('fixture.invalid',) if item['source_id'] == 'fixture_offline' else session.image_hosts,
+                                                    headers=getattr(session,'image_headers',None))
                 finally:
                     attempt['budgets'][str(page.ordinal)] = budget.used
                     self.store.put('attempt', attempt['id'], attempt)
@@ -341,7 +353,18 @@ class Engine:
 
     def start(self):
         def work():
+            next_schedule=0
             while not self.shutdown.is_set():
+                if time.time()>=next_schedule:
+                    next_schedule=time.time()+5
+                    for item in self.store.subscriptions():
+                        if item.get('paused') or item.get('cancelled') or not item.get('next_check_at') or item['next_check_at']>time.time(): continue
+                        history=[j for j in self.store.jobs() if j['subscription_id']==item['id']]
+                        if history and history[-1]['status'] in (*ACTIVE,'interrupted'): continue
+                        item['next_check_at']=time.time()+item.get('interval_hours',120)*3600
+                        self.store.save_subscription(item)
+                        try: self.enqueue(item['id'],origin='schedule')
+                        except CoreError: pass
                 job = next((j for j in self.store.jobs() if j['status'] == 'waiting' or (j['status'] == 'retry_wait' and j.get('retry_at', 0) <= time.time())), None)
                 if job:
                     try: self.run_job(job['id'])
