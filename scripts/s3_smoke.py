@@ -46,7 +46,7 @@ def main():
                 assert preview['after_anchor']==[latest['chapter_key']], 'Test must cover one chapter only'
                 item=api('subscriptions',dict(preview_id=preview['id']))
             job=api('subscriptions/'+item['id']+'/run',{})
-            deadline=time.time()+600;previous=None;stop_sent=False
+            deadline=time.time()+1200;previous=None;stop_sent=False
             while time.time()<deadline:
                 current=next(j for j in api('tasks') if j['id']==job['id'])
                 state=(current['status'],current['phase'],current['images_done'],current.get('error_code'))

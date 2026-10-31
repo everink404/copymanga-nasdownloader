@@ -1,5 +1,6 @@
 import io
 import json
+import html
 import tempfile
 import time
 import unittest
@@ -114,6 +115,21 @@ class SourceTests(unittest.TestCase):
             self.assertTrue(page['end_reached'])
             with self.assertRaises(CoreError) as caught:session.get_manifest(page['items'][0])
             self.assertEqual(caught.exception.code,'SITE_RESTRICTED')
+        finally:session.close()
+
+    def test_copy_catalog_uses_website_filters_and_real_offset(self):
+        source=real_sources()[1]
+        def response(request):
+            self.assertEqual(request.url.path,'/comics')
+            self.assertEqual(request.url.params['status'],'1')
+            offset=request.url.params['offset']
+            items=html.escape(repr([dict(path_word='comic'+offset,name='标题'+offset)]),quote=True)
+            return httpx.Response(200,text='<div class="exemptComic-box" list="'+items+'" total="45"></div>')
+        session=source.open_session(transport=self.transport(source,response))
+        try:
+            first=session.browse(page=1,status='1');second=session.browse(page=2,status='1')
+            self.assertNotEqual(first['items'][0]['comic_id'],second['items'][0]['comic_id'])
+            self.assertTrue(second['has_more'])
         finally:session.close()
 
     def test_api_subscription_cards_policy_and_complete_download(self):

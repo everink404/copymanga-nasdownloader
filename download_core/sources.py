@@ -258,14 +258,15 @@ class CopySession(Session):
             data=self.fetch('/api/kb/web/searchcl/comics',dict(params,q=query.strip(),q_type='',platform=2))
         else:
             params.update(ordering='-popular' if sort=='popular' else '-datetime_updated',**{k:v for k,v in dict(status=status,theme=theme).items() if v!=''})
-            try: data=self.fetch('/api/v3/comics',params)
-            except CoreError as error:
-                if error.code not in ('NETWORK','SITE_RESTRICTED','HTTP_ERROR'): raise
-                soup=BeautifulSoup(self.raw(self.web+'/comics?'+urlencode(params)),'html.parser')
-                box=soup.select_one('.exemptComic-box[list][total]')
-                if box is None: raise CoreError('PROTOCOL_ERROR','API 无法访问，官网列表也未能解析，请检查源地址和代理')
-                try: data=dict(list=ast.literal_eval(box['list']),total=int(box['total']))
-                except (ValueError,SyntaxError,TypeError): raise CoreError('PROTOCOL_ERROR','官网列表格式已变化') from None
+            # The app catalog endpoint can return an empty success envelope.
+            # Use the public website's server-filtered catalog, as the old UI did.
+            soup=BeautifulSoup(self.raw(self.web+'/comics?'+urlencode(params)),'html.parser')
+            box=soup.select_one('.exemptComic-box[list][total]')
+            if box is None: raise CoreError('PROTOCOL_ERROR','官网列表未能解析，请检查官网地址和代理')
+            try: data=dict(list=ast.literal_eval(box['list']),total=int(box['total']))
+            except (ValueError,SyntaxError,TypeError): raise CoreError('PROTOCOL_ERROR','官网列表格式已变化') from None
+            if not data['list'] and not status and not theme:
+                raise CoreError('SITE_RESTRICTED','官网返回空漫画列表，可能受到站点限制，未当作正常无结果')
         items=data.get('list'); total=data.get('total')
         if not isinstance(items,list): raise CoreError('PROTOCOL_ERROR','拷贝列表格式错误')
         return dict(items=[self.comic(i) for i in items],page=page,total=total,has_more=params['offset']+len(items)<total if type(total) is int else len(items)==20)
