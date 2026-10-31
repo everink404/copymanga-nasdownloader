@@ -32,6 +32,7 @@ class Transport:
         self.auth_hosts = set(auth_hosts)
         self.requests = 0
         self.last_url=None
+        self.origin_cookies={}
 
     def get(self, url, budget, role='image', allowed_hosts=(), headers=None):
         return self.request(url, budget, role, allowed_hosts, headers)
@@ -46,7 +47,7 @@ class Transport:
             raise CoreError('PROTOCOL_ERROR', '请求禁止向此主机发送账号凭据')
         scope = self.scope or initial.hostname
         url = budget.redirect_url or url
-        if urlparse(url).hostname!=initial.hostname:
+        if urlparse(url).netloc!=initial.netloc:
             request_headers={k:v for k,v in request_headers.items() if k.lower() not in sensitive}
         for redirect in range(6):
             with self.shared_lock:
@@ -59,10 +60,14 @@ class Transport:
                 self.shared_due[(scope, role)] = now + (60 / rate if rate else 0)
             self.requests += 1
             try:
-                # Authentication is explicit and host-scoped; never replay an implicit
-                # server cookie jar onto a CDN or a later request role.
-                self.client.cookies.clear()
+                # Keep a website's anonymous session for its directory request,
+                # but partition even broad Domain cookies by exact origin. Images
+                # never receive any website/API cookies.
+                parsed_url=urlparse(url)
+                origin=(parsed_url.scheme,parsed_url.hostname,parsed_url.port or 443)
+                self.client.cookies=self.origin_cookies.get(origin,httpx.Cookies()) if role=='api' else httpx.Cookies()
                 with self.client.stream(method, url, headers=request_headers, data=data, timeout=45 if role == 'image' else 20) as response:
+                    if role=='api':self.origin_cookies[origin]=httpx.Cookies(self.client.cookies)
                     if response.status_code in (301, 302, 303, 307, 308):
                         target = str(response.url.join(response.headers.get('location', '')))
                         parsed = urlparse(target)
@@ -70,7 +75,7 @@ class Transport:
                             raise CoreError('PROTOCOL_ERROR', '拒绝不安全的重定向')
                         if method != 'GET':
                             raise CoreError('PROTOCOL_ERROR', '登录请求不跟随重定向')
-                        if parsed.hostname != urlparse(url).hostname:
+                        if parsed.netloc != urlparse(url).netloc:
                             request_headers = {k:v for k,v in request_headers.items() if k.lower() not in sensitive}
                         url = target; budget.redirect_url = target
                         continue

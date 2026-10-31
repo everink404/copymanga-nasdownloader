@@ -336,6 +336,7 @@ class CopySession(Session):
         return dict(items=items,total=total,snapshot_token=None,end_reached=end,next_cursor=str(offset+len(items)) if not end and items else None)
 
     def get_manifest(self,chapter,refresh=False):
+        self.image_headers['Referer']=self.web+'/comic/'+chapter.comic_id+'/chapter/'+chapter.chapter_id
         try:
             data=self.auth_fetch('/api/v3/comic/'+chapter.comic_id+'/chapter2/'+chapter.chapter_id)
             data=data.get('chapter',data); pages=data.get('contents'); words=data.get('words')

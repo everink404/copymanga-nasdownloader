@@ -110,6 +110,22 @@ class SourceTests(unittest.TestCase):
             self.assertNotIn('Authorization',captured[-1].headers)
         finally:transport.close()
 
+    def test_same_origin_session_cookie_is_kept_but_never_sent_to_cdn(self):
+        captured=[]
+        def respond(request):
+            captured.append(request)
+            return httpx.Response(200,content=b'ok',headers={'Set-Cookie':'session=private; Domain=.example.org; Path=/; Secure'})
+        transport=Transport(httpx.Client(transport=httpx.MockTransport(respond)),api_rate=0,image_rate=0,scope=object())
+        try:
+            transport.get('https://web.example.org/a',Budget(),role='api',allowed_hosts=('web.example.org',))
+            transport.get('https://web.example.org/b',Budget(),role='api',allowed_hosts=('web.example.org',))
+            self.assertIn('session=private',captured[-1].headers.get('cookie',''))
+            transport.get('https://cdn.example.org/p',Budget(),allowed_hosts=('cdn.example.org',))
+            self.assertNotIn('cookie',captured[-1].headers)
+            transport.get('https://api.example.org/a',Budget(),role='api',allowed_hosts=('api.example.org',))
+            self.assertNotIn('cookie',captured[-1].headers)
+        finally:transport.close()
+
     def test_copy_api_pagination_and_210_preserved(self):
         source=real_sources()[1]
         def response(request):
