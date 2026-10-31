@@ -31,6 +31,7 @@ class Transport:
         self.scope = scope
         self.auth_hosts = set(auth_hosts)
         self.requests = 0
+        self.last_url=None
 
     def get(self, url, budget, role='image', allowed_hosts=(), headers=None):
         return self.request(url, budget, role, allowed_hosts, headers)
@@ -97,6 +98,7 @@ class Transport:
                             raise CoreError('INVALID_IMAGE', '图片响应超出单页限制')
                         chunks.append(chunk)
                     budget.redirect_url = None
+                    self.last_url=str(response.url)
                     return b''.join(chunks)
             except httpx.RequestError:
                 raise CoreError('NETWORK', '源连接失败，请检查网络与代理', retry_at=time.time() + (3 if budget.used == 1 else 10)) from None

@@ -127,10 +127,14 @@ class Session:
         self.budgets={}; self.cache={}; self.image_hosts=set(); self.image_headers={'User-Agent':UA,'Referer':self.web+'/'}
         self.refreshed=False
 
-    def raw(self,url,headers=None,method='GET',data=None):
+    def raw(self,url,headers=None,method='GET',data=None,exact_path=False):
         budget=self.budgets.setdefault((method,url),Budget())
         while True:
-            try: return self.transport.request(url,budget,role='api',allowed_hosts=self.allowed,headers={'User-Agent':UA,**(headers or {})},method=method,data=data)
+            try:
+                content=self.transport.request(url,budget,role='api',allowed_hosts=self.allowed,headers={'User-Agent':UA,**(headers or {})},method=method,data=data)
+                if exact_path and urlparse(self.transport.last_url).path.rstrip('/')!=urlparse(url).path.rstrip('/'):
+                    raise CoreError('PROTOCOL_ERROR','源站跳转到其他内容，未把响应归到当前漫画或章节')
+                return content
             except CoreError as error:
                 # Pace local API calls, but yield long server cooldowns to the worker/UI.
                 if error.code=='RATE_LIMIT' and error.retry_at and 0<error.retry_at-time.time()<=5.05 and budget.used<budget.maximum:
@@ -140,7 +144,7 @@ class Session:
     def fetch(self,path,params=None,headers=None,base=None):
         url=(base or self.api)+path+('?' + urlencode(params) if params else '')
         try:
-            payload=json.loads(self.raw(url,headers))
+            payload=json.loads(self.raw(url,headers,exact_path=True))
             code=payload.get('code')
             if code==210: raise CoreError('SITE_RESTRICTED','CopyManga 返回 210：请求受到站点限制，未取得完整目录或图片')
             if code not in (None,200): raise CoreError('UPSTREAM_ERROR','源站返回失败，未将响应当成空列表')
@@ -198,7 +202,7 @@ class HipSession(Session):
         return dict(items=chapters,total=total,snapshot_token=None,end_reached=page>=pages,next_cursor=str(page+1) if page<pages else None)
 
     def get_manifest(self,chapter,refresh=False):
-        soup=BeautifulSoup(self.raw(self.config['reader_url']+'/chapter/'+identifier(chapter.chapter_id)),'html.parser')
+        soup=BeautifulSoup(self.raw(self.config['reader_url']+'/chapter/'+identifier(chapter.chapter_id),exact_path=True),'html.parser')
         node=soup.select_one('#chapcontent')
         if node is None or not node.get('data-api-hid'): raise CoreError('PROTOCOL_ERROR','嬉皮章节配置缺失')
         base=node.get('data-api-base-url',self.api).rstrip('/')
@@ -289,7 +293,7 @@ class CopySession(Session):
         return self.cache[comic_id]
 
     def web_comic(self,comic_id):
-        html=self.raw(self.web+'/comic/'+comic_id); soup=BeautifulSoup(html,'html.parser')
+        html=self.raw(self.web+'/comic/'+comic_id,exact_path=True); soup=BeautifulSoup(html,'html.parser')
         title=soup.select_one('.comicParticulars-title-right h6')
         if title is None: raise CoreError('SITE_RESTRICTED','拷贝 API 受限，官网也未返回有效漫画资料')
         cover=soup.select_one('.comicParticulars-left-img img'); intro=soup.select_one('p.intro')
@@ -341,7 +345,7 @@ class CopySession(Session):
                 pages=[p for _,p in sorted(zip(words,pages))]
         except CoreError as error:
             if error.code!='SITE_RESTRICTED': raise
-            html=self.raw(self.web+'/comic/'+chapter.comic_id+'/chapter/'+chapter.chapter_id).decode('utf-8',errors='replace')
+            html=self.raw(self.web+'/comic/'+chapter.comic_id+'/chapter/'+chapter.chapter_id,exact_path=True).decode('utf-8',errors='replace')
             encrypted=re.search(r'\bvar\s+contentKey\s*=\s*([\'"])(.*?)\1',html)
             encryption_key=re.search(r'\bvar\s+cct\s*=\s*([\'"])(.*?)\1',html)
             if not encrypted or not encryption_key: raise CoreError('SITE_RESTRICTED','拷贝返回 210，官网也未取得完整图片清单，未下载或记为完成')

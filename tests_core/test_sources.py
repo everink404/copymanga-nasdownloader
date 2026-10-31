@@ -59,6 +59,17 @@ class SourceTests(unittest.TestCase):
             with self.assertRaises(CoreError): session.browse(status='1')
         finally:session.close()
 
+    def test_reader_redirect_to_other_chapter_is_not_accepted(self):
+        source=real_sources()[0]
+        def response(request):
+            if request.url.path=='/chapter/requested':return httpx.Response(302,headers={'Location':'/chapter/other'})
+            return self.respond(request)
+        session=source.open_session(transport=self.transport(source,response))
+        try:
+            with self.assertRaises(CoreError) as caught:session.raw(source.config['reader_url']+'/chapter/requested',exact_path=True)
+            self.assertEqual(caught.exception.code,'PROTOCOL_ERROR')
+        finally:session.close()
+
     def test_settings_redaction_and_origin_change(self):
         source=real_sources()[1]
         source.configure(dict(password='test-password',token='test-token',proxy='http://user:pass@127.0.0.1:7890'))
