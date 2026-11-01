@@ -1,6 +1,6 @@
 # copymanga-nasdownloader
 
-> 下载器重构候选版见 [S3 一页说明](docs/project/S3.md) 和 `compose.s3.yaml`，固定镜像标签 `v0.2.0-rc.2`，飞牛部署步骤见 [部署说明](docs/project/DEPLOY-S3.md)。接入嬉皮与拷贝两个源；`latest` 仍为原正式版。[S2 离线核心](docs/project/S2.md)保留独立测试入口。
+> 下载器重构候选版见 [S3 一页说明](docs/project/S3.md) 和 `compose.s3.yaml`，固定镜像标签 `v0.2.0-rc.4`，飞牛部署步骤见 [部署说明](docs/project/DEPLOY-S3.md)。接入嬉皮与拷贝两个源；`latest` 仍为原正式版。[S2 离线核心](docs/project/S2.md)保留独立测试入口。
 
 ![social-media](./assets/social-media.png)
 
