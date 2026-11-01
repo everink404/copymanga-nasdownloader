@@ -163,7 +163,7 @@ class Session:
     def image_url(self,value,base):
         url=urljoin(base.rstrip('/')+'/',value)
         host=urlparse(url).hostname
-        suffixes=('s3imgs.top','s3file.top','hipmh.top') if self.source_id=='hipmh' else ('copymanga.com','copymanga.org','mangacopy.com','copymanga.site','copy2000.online')
+        suffixes=('s3imgs.top','s3file.top','hipmh.top') if self.source_id=='hipmh' else ('copymanga.com','copymanga.org','mangacopy.com','copymanga.site','copy2000.online','sw.mangafunb.fun')
         if urlparse(url).scheme!='https' or not host or not any(host==s or host.endswith('.'+s) for s in suffixes):
             raise CoreError('PROTOCOL_ERROR','图片主机不在源允许的范围内，未发出请求')
         self.image_hosts.add(host)
@@ -251,6 +251,7 @@ class CopySession(Session):
                 result.update(count=chapter.get('count') if type(chapter.get('count')) is int else None,
                     contents_length=len(pages) if isinstance(pages,list) else None,words_length=len(words) if isinstance(words,list) else None,
                     first_url_present=bool(urls and urls[0]),last_url_present=bool(urls and urls[-1]),
+                    image_hosts=sorted({urlparse(u).hostname for u in urls if isinstance(u,str) and urlparse(u).hostname})[:10],
                     flags={k:v for k,v in payload.items() if k in ('show_app','is_lock','is_login','is_banned','is_vip','is_mobile_bind') and type(v) is bool})
             else:
                 payload=self.fetch('/api/v3/comic2/'+identifier(comic_id))

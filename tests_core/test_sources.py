@@ -195,11 +195,12 @@ class SourceTests(unittest.TestCase):
         from download_core.models import Chapter
         source=real_sources()[1]
         def response(request):
-            return httpx.Response(200,json=dict(code=200,results=dict(chapter=dict(count=20,contents=[dict(url='https://cdn.copymanga.com/one.png')],words=[0]))))
+            return httpx.Response(200,json=dict(code=200,results=dict(chapter=dict(count=20,contents=[dict(url='https://sw.mangafunb.fun/one.png')],words=[0]))))
         session=source.open_session(transport=self.transport(source,response))
         try:
             manifest=session.get_manifest(Chapter('copymanga','demo','default','ch1','1',1))
             self.assertEqual(manifest.expected_count,1)
+            with self.assertRaises(CoreError):session.image_url('https://unrelated.example/p.png',session.web)
             self.assertEqual(session.transport.requests,1)
         finally:session.close()
 
