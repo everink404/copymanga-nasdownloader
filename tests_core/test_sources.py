@@ -144,6 +144,50 @@ class SourceTests(unittest.TestCase):
             self.assertEqual(caught.exception.code,'SITE_RESTRICTED')
         finally:session.close()
 
+    def test_copy_current_profile_catalog_and_origin_scoping(self):
+        source=real_sources()[1]
+        def response(request):
+            self.calls.append(request)
+            if request.url.host=='www.copy4000.com':
+                self.assertNotIn('platform',request.headers)
+                self.assertNotIn('version',request.headers)
+                return httpx.Response(200,content=b'website')
+            self.assertEqual(request.headers['platform'],'1')
+            self.assertEqual(request.headers['version'],'2026.08.21')
+            self.assertEqual(request.headers['origin'],'https://2025copy.com')
+            if request.url.path.endswith('/chapters'):
+                self.assertEqual(dict(request.url.params),dict(limit='100',offset='100',_update='true'))
+                return httpx.Response(200,json=dict(code=200,results=dict(list=[dict(uuid='ch101',name='101')],total=101)))
+            return httpx.Response(200,json=dict(code=200,results=dict(comic=dict(path_word='demo',name='示例'),groups=dict(default=dict(name='正文')))))
+        session=source.open_session(transport=self.transport(source,response))
+        try:
+            page=session.list_chapters('demo','default','100')
+            self.assertTrue(page['end_reached']);self.assertEqual(page['items'][0].ordinal,101)
+            session.raw(source.config['web_url']+'/comic/demo')
+        finally:session.close()
+
+    def test_copy_anonymous_diagnostic_redacts_restriction_body(self):
+        source=real_sources()[1]
+        def response(request):
+            self.assertNotIn('authorization',request.headers)
+            return httpx.Response(210,text='private signed url and cookie must not be returned')
+        session=source.open_session(transport=self.transport(source,response))
+        try:
+            result=session.diagnose('demo')
+            self.assertEqual(result['http_status'],210)
+            self.assertEqual(result['error'],'SITE_RESTRICTED')
+            self.assertNotIn('private',json.dumps(result))
+        finally:session.close()
+
+    def test_copy_legacy_profile_can_be_selected_without_current_headers(self):
+        source=real_sources()[1];source.configure(dict(api_profile='legacy'))
+        def response(request):
+            self.assertNotIn('platform',request.headers)
+            return httpx.Response(200,json=dict(code=200,results=dict(groups={})))
+        session=source.open_session(transport=self.transport(source,response))
+        try:self.assertEqual(session.diagnose('demo')['groups'],0)
+        finally:session.close()
+
     def test_copy_catalog_uses_website_filters_and_real_offset(self):
         source=real_sources()[1]
         def response(request):

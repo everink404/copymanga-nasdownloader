@@ -41,6 +41,12 @@ class SettingsInput(BaseModel):
     values: dict
 
 
+class DiagnosticInput(BaseModel):
+    comic_id: str = 'wulianggonghui'
+    profile: str = 'copy20-1.4.85'
+    api_url: str | None = None
+
+
 class PolicyInput(BaseModel):
     preview_id: str
 
@@ -149,6 +155,17 @@ def create_app(data=None, downloads=None, cbz=None, fixture=None):
             except BaseException:
                 source.config=previous; source.generation=generation; raise
         return source.public_config()
+
+    @app.post('/api/v1/sources/copymanga/diagnose')
+    def diagnose_copy(body: DiagnosticInput):
+        source=engine().registry.get('copymanga')
+        if body.profile not in ('legacy','copy20-1.4.85') or body.api_url not in (None,'https://api.mangacopy.com','https://api.copy4000.com'):
+            raise CoreError('CONFIG_INVALID','诊断仅支持内置协议和公开 API 地址')
+        config=dict(source.config,api_profile=body.profile,username='',password='',token='')
+        if body.api_url:config['api_url']=body.api_url
+        session=source.session_type(source,config)
+        try:return session.diagnose(body.comic_id)
+        finally:session.close()
 
     @app.get('/api/v1/browse')
     def browse(source_id: str = 'hipmh', q: str = '',page: int=1,sort: str='updated',status: str='',theme: str=''):

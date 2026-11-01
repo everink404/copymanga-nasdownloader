@@ -17,6 +17,9 @@ from .models import Chapter, CoreError, ImageEntry, Manifest, digest, canonical
 from .transport import Budget, Transport
 
 UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/137.0.0.0 Safari/537.36'
+COPY_HEADERS = {'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:114.0) Gecko/20100101 Firefox/114.0',
+                'Accept':'application/json','Accept-Language':'en-US,en;q=0.9,zh-TW;q=0.8,zh;q=0.7',
+                'Origin':'https://2025copy.com','Version':'2026.08.21','Region':'0','Webp':'0','platform':'1'}
 
 
 def identifier(value):
@@ -99,6 +102,7 @@ class SiteSource:
         for field in ('api_rate','image_rate'):
             if type(candidate[field]) is not int or not 0<=candidate[field]<=600: raise CoreError('CONFIG_INVALID','限流需为 0 到 600 的整数，0 为关闭')
         if candidate.get('image_line','line1') not in ('line1','line2'): raise CoreError('CONFIG_INVALID','图片线路无效')
+        if candidate.get('api_profile','copy20-1.4.85') not in ('copy20-1.4.85','legacy'): raise CoreError('CONFIG_INVALID','API 协议配置无效')
         self.config=candidate; self.generation+=1; self.token_cache=None
         self.comic_cache.clear();self.cover_cache.clear();self.cover_bytes=0
 
@@ -225,6 +229,23 @@ class HipSession(Session):
 
 
 class CopySession(Session):
+    def raw(self,url,headers=None,**kwargs):
+        # Version/platform headers belong only to the configured API origin.
+        api_headers=COPY_HEADERS if self.config.get('api_profile','copy20-1.4.85')!='legacy' and urlparse(url).netloc==urlparse(self.api).netloc else {}
+        return super().raw(url,headers={**api_headers,**(headers or {})},**kwargs)
+
+    def diagnose(self,comic_id):
+        """One anonymous detail request; never return bodies, cookies or credentials."""
+        result=dict(host=self.api_host,profile=self.config.get('api_profile','copy20-1.4.85'),stage='detail',http_status=None)
+        try:
+            payload=self.fetch('/api/v3/comic2/'+identifier(comic_id))
+            groups=payload.get('groups')
+            result.update(groups=len(groups) if isinstance(groups,(list,dict)) else 0,result_keys=sorted(payload.keys())[:20])
+        except CoreError as error:
+            result['error']=error.code
+        result['http_status']=self.transport.last_status
+        return result
+
     def auth_headers(self):
         token=self.config.get('token','')
         if not token and self.config.get('username') and self.config.get('password'):
@@ -287,8 +308,12 @@ class CopySession(Session):
                 self.cache[comic_id]=comic
             except CoreError as error:
                 if error.code not in ('NETWORK','HTTP_ERROR','SITE_RESTRICTED','CATALOG_INCOMPLETE'): raise
+                api_failure=dict(stage='detail_api',error=error.code,http_status=self.transport.last_status,host=self.api_host)
                 comic=self.web_comic(comic_id)
+                comic['diagnostics']=[api_failure,*comic.get('diagnostics',[])]
                 comic['notice']='API 受限，已尝试官网公开资料；'+comic.get('notice','')
+                if not comic.get('groups'):
+                    comic['notice']+=' 诊断：'+error.code+(('（HTTP '+str(api_failure['http_status'])+'）') if api_failure['http_status'] else '')+'；未下载或更新完成记录。'
                 self.cache[comic_id]=comic
         return self.cache[comic_id]
 
@@ -313,7 +338,8 @@ class CopySession(Session):
                     comic['groups'].append(dict(group_id=group_id,name=group.get('name') or group_id))
                 if not any(directories.values()): raise ValueError()
                 self.cache['dirs:'+comic_id]=directories
-            except (CoreError,KeyError,ValueError,TypeError):
+            except (CoreError,KeyError,ValueError,TypeError) as error:
+                comic['diagnostics']=[dict(stage='website_catalog',error=error.code if isinstance(error,CoreError) else 'CATALOG_INCOMPLETE',http_status=self.transport.last_status)]
                 comic['groups']=[]; comic['notice']='官网未取得完整目录，暂不能订阅。'
         else: comic['notice']='官网目录参数缺失，暂不能订阅。'
         return comic
@@ -328,7 +354,8 @@ class CopySession(Session):
             items=directories[group_id]
             return dict(items=items,total=len(items),snapshot_token=digest(canonical([c.data() for c in items]).encode()),end_reached=True,next_cursor=None)
         offset=int(cursor or 0)
-        data=self.auth_fetch('/api/v3/comic/'+identifier(comic_id)+'/group/'+group_id+'/chapters',dict(limit=500,offset=offset))
+        params=dict(limit=100,offset=offset,_update='true') if self.config.get('api_profile','copy20-1.4.85')!='legacy' else dict(limit=500,offset=offset)
+        data=self.auth_fetch('/api/v3/comic/'+identifier(comic_id)+'/group/'+group_id+'/chapters',params)
         raw=data.get('list'); total=data.get('total')
         if not isinstance(raw,list) or type(total) is not int: raise CoreError('CATALOG_INCOMPLETE','拷贝目录格式错误')
         items=[Chapter(self.source_id,comic_id,group_id,identifier(c['uuid']),c['name'],offset+i+1,c.get('datetime_created')) for i,c in enumerate(raw)]
@@ -359,7 +386,7 @@ def real_sources():
     common=dict(proxy='',username='',password='',token='',image_rate=60)
     sources=[SiteSource('hipmh','嬉皮漫画',dict(common,api_url='https://hipapi1.s3file.top',web_url='https://www.hipmh.com',
                       reader_url='https://reader.hipmh.top',cover_url='https://cover.s3imgs.top',api_rate=180,image_line='line1'),HipSession),
-            SiteSource('copymanga','拷贝漫画',dict(common,api_url='https://api.mangacopy.com',web_url='https://www.copy4000.com',api_rate=12),CopySession)]
+            SiteSource('copymanga','拷贝漫画',dict(common,api_url='https://api.copy4000.com',web_url='https://www.copy4000.com',api_rate=12,api_profile='copy20-1.4.85'),CopySession)]
     values={field:os.environ[variable] for field,variable in dict(api_url='CMNAS_API_URL',web_url='CMNAS_CM_WEB_URL',
             username='CMNAS_CM_USERNAME',password='CMNAS_CM_PASSWORD',token='CMNAS_CM_TOKEN',proxy='CMNAS_CM_PROXY').items() if os.environ.get(variable)}
     if 'CMNAS_CM_RATE_LIMIT_PER_MINUTE' in os.environ:
