@@ -17,9 +17,11 @@ from .models import Chapter, CoreError, ImageEntry, Manifest, digest, canonical
 from .transport import Budget, Transport
 
 UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/137.0.0.0 Safari/537.36'
-COPY_HEADERS = {'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:114.0) Gecko/20100101 Firefox/114.0',
+COPY_HEADERS = {'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/114.0',
                 'Accept':'application/json','Accept-Language':'en-US,en;q=0.9,zh-TW;q=0.8,zh;q=0.7',
-                'Origin':'https://2025copy.com','Version':'2026.08.21','Region':'0','Webp':'0','platform':'1'}
+                'Origin':'https://2025copy.com','Version':'2026.08.21','Region':'0','Webp':'0','platform':'1',
+                'sec-fetch-dest':'document','sec-fetch-mode':'navigate','sec-fetch-site':'same-origin',
+                'sec-fetch-user':'?1','upgrade-insecure-requests':'1'}
 
 
 def identifier(value):
@@ -232,6 +234,9 @@ class CopySession(Session):
     def raw(self,url,headers=None,**kwargs):
         # Version/platform headers belong only to the configured API origin.
         api_headers=COPY_HEADERS if self.config.get('api_profile','copy20-1.4.85')!='legacy' and urlparse(url).netloc==urlparse(self.api).netloc else {}
+        if api_headers:
+            self.transport.no_cookie_hosts.add(self.api_host)
+            headers={k:v for k,v in (headers or {}).items() if k.lower()!='cache-control'}
         return super().raw(url,headers={**api_headers,**(headers or {})},**kwargs)
 
     def diagnose(self,comic_id):

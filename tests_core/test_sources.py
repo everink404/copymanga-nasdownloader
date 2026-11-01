@@ -153,6 +153,9 @@ class SourceTests(unittest.TestCase):
                 self.assertNotIn('version',request.headers)
                 return httpx.Response(200,content=b'website')
             self.assertEqual(request.headers['platform'],'1')
+            self.assertIn('rv:109.0',request.headers['user-agent'])
+            self.assertEqual(request.headers['sec-fetch-mode'],'navigate')
+            self.assertNotIn('cache-control',request.headers)
             self.assertEqual(request.headers['version'],'2026.08.21')
             self.assertEqual(request.headers['origin'],'https://2025copy.com')
             if request.url.path.endswith('/chapters'):
@@ -198,6 +201,17 @@ class SourceTests(unittest.TestCase):
             with self.assertRaises(CoreError) as caught:session.get_manifest(Chapter('copymanga','demo','default','ch1','1',1))
             self.assertEqual(caught.exception.code,'CATALOG_INCOMPLETE')
             self.assertEqual(session.transport.requests,1)
+        finally:session.close()
+
+    def test_copy_current_api_discards_cookies_and_cache_control(self):
+        source=real_sources()[1]
+        def response(request):
+            self.assertNotIn('cookie',request.headers)
+            self.assertNotIn('cache-control',request.headers)
+            return httpx.Response(200,content=b'ok',headers={'set-cookie':'session=private; Path=/; Secure'})
+        session=source.open_session(transport=self.transport(source,response))
+        try:
+            for _ in range(2):session.raw(source.config['api_url']+'/test',headers={'Cache-Control':'no-cache'})
         finally:session.close()
 
     def test_copy_catalog_uses_website_filters_and_real_offset(self):

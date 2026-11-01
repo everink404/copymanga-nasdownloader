@@ -1,6 +1,6 @@
-# S3 可部署版 v0.2.0-rc.1
+# S3 可部署版 v0.2.0-rc.2
 
-镜像：`montequilla/copymanga-nasdownloader:v0.2.0-rc.1`（linux/amd64）。使用仓库 `compose.s3.yaml`。本版是独立的新下载核心和界面，暂不覆盖旧版 `latest`。
+镜像：`montequilla/copymanga-nasdownloader:v0.2.0-rc.2`（linux/amd64）。使用仓库 `compose.s3.yaml`。本版是独立的新下载核心和界面，暂不覆盖旧版 `latest`。
 
 ## 飞牛部署
 

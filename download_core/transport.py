@@ -34,6 +34,7 @@ class Transport:
         self.last_url=None
         self.last_status=None
         self.origin_cookies={}
+        self.no_cookie_hosts=set()
 
     def get(self, url, budget, role='image', allowed_hosts=(), headers=None):
         return self.request(url, budget, role, allowed_hosts, headers)
@@ -67,10 +68,11 @@ class Transport:
                 # never receive any website/API cookies.
                 parsed_url=urlparse(url)
                 origin=(parsed_url.scheme,parsed_url.hostname,parsed_url.port or 443)
-                self.client.cookies=self.origin_cookies.get(origin,httpx.Cookies()) if role=='api' else httpx.Cookies()
+                keep_cookies=role=='api' and parsed_url.hostname not in self.no_cookie_hosts
+                self.client.cookies=self.origin_cookies.get(origin,httpx.Cookies()) if keep_cookies else httpx.Cookies()
                 with self.client.stream(method, url, headers=request_headers, data=data, timeout=45 if role == 'image' else 20) as response:
                     self.last_status=response.status_code
-                    if role=='api':self.origin_cookies[origin]=httpx.Cookies(self.client.cookies)
+                    if keep_cookies:self.origin_cookies[origin]=httpx.Cookies(self.client.cookies)
                     if response.status_code in (301, 302, 303, 307, 308):
                         target = str(response.url.join(response.headers.get('location', '')))
                         parsed = urlparse(target)
