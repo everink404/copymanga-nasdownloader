@@ -43,6 +43,7 @@ class SettingsInput(BaseModel):
 
 class DiagnosticInput(BaseModel):
     comic_id: str = 'wulianggonghui'
+    chapter_id: str | None = None
     profile: str = 'copy20-1.4.85'
     api_url: str | None = None
 
@@ -164,7 +165,7 @@ def create_app(data=None, downloads=None, cbz=None, fixture=None):
         config=dict(source.config,api_profile=body.profile,username='',password='',token='')
         if body.api_url:config['api_url']=body.api_url
         session=source.session_type(source,config)
-        try:return session.diagnose(body.comic_id)
+        try:return session.diagnose(body.comic_id,body.chapter_id)
         finally:session.close()
 
     @app.get('/api/v1/browse')

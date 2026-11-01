@@ -1,6 +1,6 @@
 services:
   manga-downloader-s3:
-    image: montequilla/copymanga-nasdownloader:v0.2.0-rc.2
+    image: montequilla/copymanga-nasdownloader:v0.2.0-rc.3
     container_name: cmnas-s3-test
     ports:
       - "18003:8000"

@@ -239,13 +239,23 @@ class CopySession(Session):
             headers={k:v for k,v in (headers or {}).items() if k.lower()!='cache-control'}
         return super().raw(url,headers={**api_headers,**(headers or {})},**kwargs)
 
-    def diagnose(self,comic_id):
+    def diagnose(self,comic_id,chapter_id=None):
         """One anonymous detail request; never return bodies, cookies or credentials."""
         result=dict(host=self.api_host,profile=self.config.get('api_profile','copy20-1.4.85'),stage='detail',http_status=None)
         try:
-            payload=self.fetch('/api/v3/comic2/'+identifier(comic_id))
-            groups=payload.get('groups')
-            result.update(groups=len(groups) if isinstance(groups,(list,dict)) else 0,result_keys=sorted(payload.keys())[:20])
+            if chapter_id:
+                result['stage']='chapter'
+                payload=self.fetch('/api/v3/comic/'+identifier(comic_id)+'/chapter2/'+identifier(chapter_id))
+                chapter=payload.get('chapter') or {};pages=chapter.get('contents');words=chapter.get('words')
+                urls=[p.get('url') if isinstance(p,dict) else None for p in pages] if isinstance(pages,list) else []
+                result.update(count=chapter.get('count') if type(chapter.get('count')) is int else None,
+                    contents_length=len(pages) if isinstance(pages,list) else None,words_length=len(words) if isinstance(words,list) else None,
+                    first_url_present=bool(urls and urls[0]),last_url_present=bool(urls and urls[-1]),
+                    flags={k:v for k,v in payload.items() if k in ('show_app','is_lock','is_login','is_banned','is_vip','is_mobile_bind') and type(v) is bool})
+            else:
+                payload=self.fetch('/api/v3/comic2/'+identifier(comic_id))
+                groups=payload.get('groups')
+                result.update(groups=len(groups) if isinstance(groups,(list,dict)) else 0,result_keys=sorted(payload.keys())[:20])
         except CoreError as error:
             result['error']=error.code
         result['http_status']=self.transport.last_status
@@ -373,11 +383,11 @@ class CopySession(Session):
             data=self.auth_fetch('/api/v3/comic/'+chapter.comic_id+'/chapter2/'+chapter.chapter_id)
             data=data.get('chapter',data); pages=data.get('contents'); words=data.get('words')
             if not isinstance(pages,list) or not pages: raise CoreError('PROTOCOL_ERROR','拷贝未返回完整图片清单')
-            count=data.get('count')
-            if count is not None and (type(count) is not int or count<=0 or count!=len(pages)):
-                raise CoreError('CATALOG_INCOMPLETE','拷贝图片数量与章节声明不一致，未下载或记为完成')
-            if words is not None:
-                if len(words)!=len(pages) or len(set(words))!=len(words): raise CoreError('PROTOCOL_ERROR','拷贝图片页序无效')
+            # Copy20's page protocol uses contents/words. The independent count
+            # field has no documented page-count contract and is not used by it.
+            if words is not None and not isinstance(words,list): raise CoreError('PROTOCOL_ERROR','拷贝图片页序格式无效')
+            if words:
+                if len(words)!=len(pages) or any(type(w) is not int or w<0 for w in words) or len(set(words))!=len(words): raise CoreError('PROTOCOL_ERROR','拷贝图片页序无效')
                 pages=[p for _,p in sorted(zip(words,pages))]
         except CoreError as error:
             if error.code!='SITE_RESTRICTED': raise
@@ -387,6 +397,8 @@ class CopySession(Session):
             if not encrypted or not encryption_key: raise CoreError('SITE_RESTRICTED','拷贝返回 210，官网也未取得完整图片清单，未下载或记为完成')
             pages=decrypt(encrypted[2],encryption_key[2])
         if not isinstance(pages,list) or not pages: raise CoreError('PROTOCOL_ERROR','图片清单为空')
+        if any(not isinstance(p,dict) or not isinstance(p.get('url'),str) or not p['url'].strip() for p in pages):
+            raise CoreError('PROTOCOL_ERROR','图片清单含有空地址，未开始下载')
         return Manifest(chapter,tuple(ImageEntry(i+1,str(i+1),self.image_url(p['url'],self.web)) for i,p in enumerate(pages)),expected_count=len(pages)).validate()
 
 
