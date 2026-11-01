@@ -188,6 +188,18 @@ class SourceTests(unittest.TestCase):
         try:self.assertEqual(session.diagnose('demo')['groups'],0)
         finally:session.close()
 
+    def test_copy_partial_manifest_cannot_be_marked_complete(self):
+        from download_core.models import Chapter
+        source=real_sources()[1]
+        def response(request):
+            return httpx.Response(200,json=dict(code=200,results=dict(chapter=dict(count=20,contents=[dict(url='https://cdn.copymanga.com/one.png')],words=[0]))))
+        session=source.open_session(transport=self.transport(source,response))
+        try:
+            with self.assertRaises(CoreError) as caught:session.get_manifest(Chapter('copymanga','demo','default','ch1','1',1))
+            self.assertEqual(caught.exception.code,'CATALOG_INCOMPLETE')
+            self.assertEqual(session.transport.requests,1)
+        finally:session.close()
+
     def test_copy_catalog_uses_website_filters_and_real_offset(self):
         source=real_sources()[1]
         def response(request):

@@ -368,6 +368,9 @@ class CopySession(Session):
             data=self.auth_fetch('/api/v3/comic/'+chapter.comic_id+'/chapter2/'+chapter.chapter_id)
             data=data.get('chapter',data); pages=data.get('contents'); words=data.get('words')
             if not isinstance(pages,list) or not pages: raise CoreError('PROTOCOL_ERROR','拷贝未返回完整图片清单')
+            count=data.get('count')
+            if count is not None and (type(count) is not int or count<=0 or count!=len(pages)):
+                raise CoreError('CATALOG_INCOMPLETE','拷贝图片数量与章节声明不一致，未下载或记为完成')
             if words is not None:
                 if len(words)!=len(pages) or len(set(words))!=len(words): raise CoreError('PROTOCOL_ERROR','拷贝图片页序无效')
                 pages=[p for _,p in sorted(zip(words,pages))]

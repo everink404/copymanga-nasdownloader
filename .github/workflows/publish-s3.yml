@@ -2,6 +2,7 @@ name: Publish S3 manga source candidate
 on:
   push:
     branches: [feature/source-ui-s3]
+    tags: ['v0.2.0-rc.*']
     paths:
       - 'download_core/**'
       - 'tests_core/**'
@@ -30,6 +31,15 @@ jobs:
           python -c "from pathlib import Path; p=Path('download_core/app.html').read_text(); Path('/tmp/s3.js').write_text(p.split('<script>')[1].split('</script>')[0])"
           node --check /tmp/s3.js
       - uses: docker/setup-buildx-action@v3
+      - name: Select image version
+        id: version
+        run: |
+          VERSION=s3-preview
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then VERSION="$GITHUB_REF_NAME"; fi
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+          FIXED="s3-$GITHUB_SHA"
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then FIXED="s3-$GITHUB_SHA-$VERSION"; fi
+          echo "fixed=$FIXED" >> "$GITHUB_OUTPUT"
       - uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -46,19 +56,20 @@ jobs:
           outputs: type=image,push=true,oci-mediatypes=false
           tags: |
             montequilla/copymanga-nasdownloader:s3-preview
-            montequilla/copymanga-nasdownloader:s3-${{ github.sha }}
+            montequilla/copymanga-nasdownloader:${{ steps.version.outputs.fixed }}
+            montequilla/copymanga-nasdownloader:${{ steps.version.outputs.value }}
           build-args: |
-            APP_VERSION=s3-preview
+            APP_VERSION=${{ steps.version.outputs.value }}
             APP_REVISION=${{ github.sha }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=s3-preview
+            org.opencontainers.image.version=${{ steps.version.outputs.value }}
           cache-from: type=gha,scope=s3
           cache-to: type=gha,mode=max,scope=s3
       - name: Verify published image download and restart
         run: |
-          docker run -d --name s3-fixture -e CMNAS_S2_FIXTURE=1 -p 18003:8000 montequilla/copymanga-nasdownloader:s3-${GITHUB_SHA}
+          docker run -d --name s3-fixture -e CMNAS_S2_FIXTURE=1 -p 18003:8000 montequilla/copymanga-nasdownloader:${{ steps.version.outputs.fixed }}
           python scripts/s2_smoke.py http://127.0.0.1:18003
           docker restart s3-fixture
           python scripts/s2_smoke.py http://127.0.0.1:18003 --verify-existing
